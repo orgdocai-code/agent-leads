@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "agentleads": {
+      "command": "node",
+      "args": ["src/mcp-server.js"],
+      "env": {
+        "API_URL": "https://agent-leads-production.up.railway.app"
+      }
+    }
+  }
+}

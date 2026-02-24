@@ -1,0 +1,26 @@
+{
+  "name": "agentleads-mcp",
+  "version": "1.0.0",
+  "description": "MCP server for AgentLeads - aggregated AI agent opportunities",
+  "main": "index.js",
+  "bin": {
+    "agentleads-mcp": "./index.js"
+  },
+  "scripts": {
+    "start": "node index.js"
+  },
+  "keywords": [
+    "mcp",
+    "ai-agents",
+    "bounties",
+    "opportunities",
+    "x402",
+    "model-context-protocol"
+  ],
+  "author": "AgentLeads",
+  "license": "MIT",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0",
+    "axios": "^1.6.0"
+  }
+}
