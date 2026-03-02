@@ -306,7 +306,7 @@ function getFeaturedStats() {
   };
 }
 
-// Subscriber functions
+// Subscriber functions - MUST be before module.exports
 function addSubscriber(email, skills) {
   try {
     db.prepare('INSERT OR IGNORE INTO subscribers (email, skills) VALUES (?, ?)').run(email, skills || '');
@@ -339,5 +339,9 @@ module.exports = {
   getPosterReputation: getPosterReputation,
   getVerifiedOpportunities: getVerifiedOpportunities,
   getTopPosters: getTopPosters,
-  getCompletionStats: getCompletionStats
+  getCompletionStats: getCompletionStats,
+  // Subscriber exports
+  addSubscriber: addSubscriber,
+  getSubscribers: getSubscribers,
+  getSubscriberCount: getSubscriberCount
 };
