@@ -14,6 +14,147 @@ const PRICE = process.env.PRICE_PER_REQUEST || '0.05';
 const FEATURED_PRICE = process.env.FEATURED_PRICE || '0.50';
 
 // ========================================
+// API KEY SYSTEM (Free Tier: 10 req/day)
+// ========================================
+
+// In-memory API key storage (for production, use database)
+// Format: { 'key+ip': { requests: 0, resetDate: '2026-03-02', key: 'api-key', ip: '127.0.0.1' } }
+const apiKeys = new Map();
+
+// Global IP rate limiting (prevents 10 keys from same IP)
+// Format: { '127.0.0.1': { requests: 0, resetDate: '2026-03-02' } }
+const ipLimits = new Map();
+
+const IP_FREE_LIMIT = 20; // Max 20 requests per IP per day regardless of keys
+const KEY_FREE_LIMIT = 10; // Max 10 requests per key per IP
+
+// Free trial keys (for testing) - these bypass limits
+const FREE_TRIAL_KEYS = ['demo', 'test', 'free'];
+
+// Check and increment API key usage
+function checkApiKey(req, res, next) {
+  const apiKey = req.headers['x-api-key'] || '';
+  const clientIP = req.ip || req.headers['x-forwarded-for'] || 'unknown';
+  
+  // No API key? Check if they have x402 payment
+  if (!apiKey) {
+    return checkPayment(req, res, next);
+  }
+  
+  // Demo keys always work
+  if (FREE_TRIAL_KEYS.includes(apiKey.toLowerCase())) {
+    return next();
+  }
+  
+  const today = new Date().toISOString().split('T')[0];
+  
+  // Check global IP limit (prevent 10 keys from same IP)
+  const ipData = ipLimits.get(clientIP);
+  if (!ipData) {
+    ipLimits.set(clientIP, { requests: 1, resetDate: today });
+  } else if (ipData.resetDate !== today) {
+    ipLimits.set(clientIP, { requests: 1, resetDate: today });
+  } else if (ipData.requests >= IP_FREE_LIMIT) {
+    return res.status(429).json({
+      error: 'Rate Limit Exceeded',
+      message: 'Free tier limit: ' + IP_FREE_LIMIT + ' requests per day per IP',
+      limit: IP_FREE_LIMIT,
+      currentIP: clientIP,
+      resetAt: today + ' 00:00 UTC',
+      upgrade: 'Visit https://agentleads.ai to get a paid API key'
+    });
+  } else {
+    ipData.requests++;
+    ipLimits.set(clientIP, ipData);
+  }
+  
+  // Check per-key limit (10 per key per IP)
+  const rateLimitKey = apiKey + ':' + clientIP;
+  const keyData = apiKeys.get(rateLimitKey);
+  
+  if (!keyData) {
+    apiKeys.set(rateLimitKey, { requests: 1, resetDate: today, key: apiKey, ip: clientIP });
+    return next();
+  }
+  
+  if (keyData.resetDate !== today) {
+    apiKeys.set(rateLimitKey, { requests: 1, resetDate: today, key: apiKey, ip: clientIP });
+    return next();
+  }
+  
+  if (keyData.requests >= KEY_FREE_LIMIT) {
+    return res.status(429).json({
+      error: 'Rate Limit Exceeded',
+      message: 'Free tier limit: ' + KEY_FREE_LIMIT + ' requests per day per API key',
+      limit: KEY_FREE_LIMIT,
+      currentIP: clientIP,
+      resetAt: today + ' 00:00 UTC',
+      upgrade: 'Visit https://agentleads.ai to get a paid API key'
+    });
+  }
+  
+  keyData.requests++;
+  apiKeys.set(rateLimitKey, keyData);
+  next();
+}
+
+// Get API key usage (for debugging)
+app.get('/api-key/status', function(req, res) {
+  const apiKey = req.headers['x-api-key'];
+  if (!apiKey) {
+    return res.json({ error: 'No API key provided' });
+  }
+  
+  const keyData = apiKeys.get(apiKey);
+  if (!keyData) {
+    return res.json({ apiKey: apiKey, requests: 0, limit: 10 });
+  }
+  
+  res.json({
+    apiKey: apiKey,
+    requests: keyData.requests,
+    limit: 10,
+    resetAt: keyData.resetDate + ' 00:00 UTC'
+  });
+});
+
+// ========================================
+// SKILL EXTRACTION
+// ========================================
+
+const SKILL_PATTERNS = {
+  languages: ['python', 'javascript', 'typescript', 'go', 'rust', 'java', 'c\\+\\+', 'ruby', 'php', 'swift', 'kotlin'],
+  frontend: ['react', 'vue', 'angular', 'next\\.js', 'nextjs', 'tailwind', 'css', 'html', 'svelte', 'nuxt'],
+  backend: ['node\\.js', 'nodejs', 'express', 'fastapi', 'django', 'flask', 'spring', 'rails', 'laravel'],
+  ai_ml: ['openai', 'claude', 'gpt', 'langchain', 'llamaindex', 'llama', 'tensorflow', 'pytorch', 'pytorch', 'machine learning', 'ai', 'llm', 'gemma', 'mistral'],
+  cloud: ['aws', 'gcp', 'azure', 'vercel', 'railway', 'docker', 'kubernetes', 'k8s', 'cloudflare'],
+  databases: ['postgresql', 'postgres', 'mysql', 'mongodb', 'redis', 'supabase', 'firebase', 'dynamodb', 'sql'],
+  tools: ['git', 'github', 'gitlab', 'vscode', 'cursor', 'figma', 'notion', 'slack', 'stripe']
+};
+
+function extractSkills(title, description) {
+  const text = (title + ' ' + (description || '')).toLowerCase();
+  const foundSkills = new Set();
+  
+  for (const [category, patterns] of Object.entries(SKILL_PATTERNS)) {
+    for (const pattern of patterns) {
+      const regex = new RegExp('\\b' + pattern + '\\b', 'i');
+      if (regex.test(text)) {
+        // Normalize skill name
+        let skill = pattern.replace('\\.', '.').replace('\\+', '+');
+        if (skill === 'nodejs') skill = 'node.js';
+        if (skill === 'nextjs') skill = 'next.js';
+        if (skill === 'postgres') skill = 'postgresql';
+        if (skill === 'k8s') skill = 'kubernetes';
+        foundSkills.add(skill);
+      }
+    }
+  }
+  
+  return Array.from(foundSkills);
+}
+
+// ========================================
 // FREE ENDPOINTS (No payment required)
 // ========================================
 
@@ -83,9 +224,14 @@ app.get('/pricing', function(req, res) {
         }
       }
     },
-    free: ['/', '/health', '/stats', '/stats/completions', '/pricing', '/opportunities/featured'],
+    free: ['/', '/health', '/stats', '/stats/completions', '/pricing', '/opportunities/featured', '/skills'],
     network: 'Base',
-    documentation: 'https://docs.cdp.coinbase.com/x402'
+    documentation: 'https://docs.cdp.coinbase.com/x402',
+    apiKey: {
+      header: 'x-api-key',
+      free: '10 requests per day',
+      getKey: 'Visit https://agentleads.ai to sign up'
+    }
   });
 });
 
@@ -98,6 +244,30 @@ app.get('/stats', function(req, res) {
     bySource: stats.bySource,
     lastUpdated: stats.lastScrape,
     featuredListings: featured.active
+  });
+});
+
+// Get available skills (extracted from all jobs)
+app.get('/skills', function(req, res) {
+  var opportunities = getRecentOpportunities(500, null, null);
+  var allSkills = new Map();
+  
+  opportunities.forEach(function(opp) {
+    var skills = extractSkills(opp.title, opp.description);
+    skills.forEach(function(skill) {
+      allSkills.set(skill.toLowerCase(), (allSkills.get(skill.toLowerCase()) || 0) + 1);
+    });
+  });
+  
+  // Sort by count
+  var sortedSkills = Array.from(allSkills.entries())
+    .sort(function(a, b) { return b[1] - a[1]; })
+    .slice(0, 50);
+  
+  res.json({
+    success: true,
+    count: sortedSkills.length,
+    skills: sortedSkills.map(function(s) { return { name: s[0], count: s[1] }; })
   });
 });
 
@@ -132,17 +302,20 @@ function checkPayment(req, res, next) {
 }
 
 // ========================================
-// LEAD FEED ENDPOINTS (Paid)
+// LEAD FEED ENDPOINTS (API Key or Payment Required)
 // ========================================
 
 // Get opportunities (featured listings always appear first)
-app.get('/opportunities', checkPayment, function(req, res) {
+// Uses API key check which falls back to payment check
+app.get('/opportunities', checkApiKey, function(req, res) {
   var limit = Math.min(parseInt(req.query.limit) || 50, 100);
   var source = req.query.source || null;
   var category = req.query.category || null;
+  var skills = req.query.skills ? req.query.skills.split(',') : null;
   
   // Get featured listings and pin them first
   var featured = getActiveFeaturedListings().map(function(opp) {
+    var extractedSkills = extractSkills(opp.title, opp.description);
     return {
       id: opp.id,
       source: opp.source,
@@ -155,6 +328,7 @@ app.get('/opportunities', checkPayment, function(req, res) {
       category: opp.category,
       status: opp.status,
       scrapedAt: opp.paid_at,
+      skills: extractedSkills,
       featured: true,
       featuredUntil: opp.expires_at
     };
@@ -162,9 +336,10 @@ app.get('/opportunities', checkPayment, function(req, res) {
 
   var featuredUrls = featured.map(function(f) { return f.url; });
   
-  var opportunities = getRecentOpportunities(limit, source, category)
+  var opportunities = getRecentOpportunities(limit * 2, source, category)
     .filter(function(opp) { return featuredUrls.indexOf(opp.post_url) === -1; })
     .map(function(opp) {
+      var extractedSkills = extractSkills(opp.title, opp.description);
       return {
         id: opp.id,
         source: opp.source,
@@ -177,9 +352,22 @@ app.get('/opportunities', checkPayment, function(req, res) {
         category: opp.category,
         status: opp.status,
         scrapedAt: opp.scraped_at,
+        skills: extractedSkills,
         featured: false
       };
     });
+  
+  // Filter by skills if provided
+  if (skills && skills.length > 0) {
+    opportunities = opportunities.filter(function(opp) {
+      if (!opp.skills || opp.skills.length === 0) return false;
+      return skills.some(function(skill) {
+        return opp.skills.some(function(jobSkill) {
+          return jobSkill.toLowerCase() === skill.toLowerCase().trim();
+        });
+      });
+    });
+  }
   
   var combined = featured.concat(opportunities).slice(0, limit);
   
@@ -187,16 +375,22 @@ app.get('/opportunities', checkPayment, function(req, res) {
     success: true,
     count: combined.length,
     featuredCount: featured.length,
+    filters: {
+      skills: skills,
+      source: source,
+      category: category
+    },
     timestamp: new Date().toISOString(),
     data: combined
   });
 });
 
 // Search opportunities
-app.get('/opportunities/search', checkPayment, function(req, res) {
+app.get('/opportunities/search', checkApiKey, function(req, res) {
   var query = req.query.q || '';
   var limit = Math.min(parseInt(req.query.limit) || 50, 100);
   var minPayout = parseFloat(req.query.minPayout) || 0;
+  var skills = req.query.skills ? req.query.skills.split(',') : null;
   
   var opportunities = getRecentOpportunities(200, null, null);
   
@@ -215,6 +409,7 @@ app.get('/opportunities/search', checkPayment, function(req, res) {
   }
   
   opportunities = opportunities.slice(0, limit).map(function(opp) {
+    var extractedSkills = extractSkills(opp.title, opp.description);
     return {
       id: opp.id,
       source: opp.source,
@@ -226,13 +421,30 @@ app.get('/opportunities/search', checkPayment, function(req, res) {
       url: opp.post_url,
       category: opp.category,
       status: opp.status,
-      scrapedAt: opp.scraped_at
+      scrapedAt: opp.scraped_at,
+      skills: extractedSkills
     };
   });
+  
+  // Filter by skills if provided
+  if (skills && skills.length > 0) {
+    opportunities = opportunities.filter(function(opp) {
+      if (!opp.skills || opp.skills.length === 0) return false;
+      return skills.some(function(skill) {
+        return opp.skills.some(function(jobSkill) {
+          return jobSkill.toLowerCase() === skill.toLowerCase().trim();
+        });
+      });
+    });
+  }
   
   res.json({
     success: true,
     query: query,
+    filters: {
+      skills: skills,
+      minPayout: minPayout
+    },
     count: opportunities.length,
     data: opportunities
   });
