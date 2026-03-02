@@ -3,7 +3,7 @@ const express = require('express');
 const cors = require('cors');
 const cron = require('node-cron');
 const axios = require('axios');
-const { getRecentOpportunities, getStats, db, addFeaturedListing, getActiveFeaturedListings, getFeaturedStats } = require('./utils/database');
+const { getRecentOpportunities, getStats, db, addFeaturedListing, getActiveFeaturedListings, getFeaturedStats, addSubscriber, getSubscribers, getSubscriberCount } = require('./utils/database');
 const { runAllScrapers } = require('./scraper-runner');
 
 const app = express();
@@ -885,7 +885,7 @@ app.post('/subscribe', function(req, res) {
   
   var skills = req.body.skills || '';
   
-  var result = db.addSubscriber(email, skills);
+  var result = addSubscriber(email, skills);
   
   if (result.success) {
     res.json({ success: true, message: 'Subscribed successfully!' });
@@ -896,7 +896,7 @@ app.post('/subscribe', function(req, res) {
 
 // Get subscriber count (for admin/debugging)
 app.get('/subscribers/count', function(req, res) {
-  var count = db.getSubscriberCount();
+  var count = getSubscriberCount();
   res.json({ success: true, count: count });
 });
 
