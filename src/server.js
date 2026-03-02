@@ -869,6 +869,37 @@ cron.schedule('0 * * * *', function() {
 // START SERVER
 // ========================================
 
+// Email subscription endpoint (free - no payment required)
+app.post('/subscribe', function(req, res) {
+  var email = req.body.email;
+  
+  if (!email) {
+    return res.status(400).json({ success: false, error: 'Email is required' });
+  }
+  
+  // Simple email validation
+  var emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  if (!emailRegex.test(email)) {
+    return res.status(400).json({ success: false, error: 'Invalid email format' });
+  }
+  
+  var skills = req.body.skills || '';
+  
+  var result = db.addSubscriber(email, skills);
+  
+  if (result.success) {
+    res.json({ success: true, message: 'Subscribed successfully!' });
+  } else {
+    res.status(400).json({ success: false, error: result.error || 'Already subscribed' });
+  }
+});
+
+// Get subscriber count (for admin/debugging)
+app.get('/subscribers/count', function(req, res) {
+  var count = db.getSubscriberCount();
+  res.json({ success: true, count: count });
+});
+
 app.listen(PORT, function() {
   console.log('\n========================================');
   console.log('  AGENTLEADS API SERVER v2.0');

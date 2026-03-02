@@ -92,6 +92,17 @@ db.exec(`
   
   CREATE INDEX IF NOT EXISTS idx_featured_active ON featured_listings(active);
   CREATE INDEX IF NOT EXISTS idx_featured_expires ON featured_listings(expires_at);
+  
+  -- Email subscribers table
+  CREATE TABLE IF NOT EXISTS subscribers (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    email TEXT UNIQUE NOT NULL,
+    skills TEXT,
+    verified INTEGER DEFAULT 0,
+    subscribed_at TEXT DEFAULT CURRENT_TIMESTAMP
+  );
+  
+  CREATE INDEX IF NOT EXISTS idx_subscribers_email ON subscribers(email);
 `);
 
 // Basic opportunity functions
@@ -310,5 +321,27 @@ module.exports = {
   getPosterReputation: getPosterReputation,
   getVerifiedOpportunities: getVerifiedOpportunities,
   getTopPosters: getTopPosters,
-  getCompletionStats: getCompletionStats
+  getCompletionStats: getCompletionStats,
+  // Subscriber exports
+  addSubscriber: addSubscriber,
+  getSubscribers: getSubscribers,
+  getSubscriberCount: getSubscriberCount
 };
+
+// Subscriber functions
+function addSubscriber(email, skills) {
+  try {
+    db.prepare('INSERT OR IGNORE INTO subscribers (email, skills) VALUES (?, ?)').run(email, skills || '');
+    return { success: true, email: email };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+}
+
+function getSubscribers() {
+  return db.prepare('SELECT * FROM subscribers ORDER BY subscribed_at DESC').all();
+}
+
+function getSubscriberCount() {
+  return db.prepare('SELECT COUNT(*) as count FROM subscribers').get().count;
+}
