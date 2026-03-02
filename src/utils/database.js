@@ -306,28 +306,6 @@ function getFeaturedStats() {
   };
 }
 
-module.exports = { 
-  db: db, 
-  insertOpportunity: insertOpportunity, 
-  getRecentOpportunities: getRecentOpportunities, 
-  getStats: getStats, 
-  clearAll: clearAll,
-  addFeaturedListing: addFeaturedListing,
-  getActiveFeaturedListings: getActiveFeaturedListings,
-  getFeaturedStats: getFeaturedStats,
-  // New completion tracking exports
-  updateCompletionStatus: updateCompletionStatus,
-  updatePosterStats: updatePosterStats,
-  getPosterReputation: getPosterReputation,
-  getVerifiedOpportunities: getVerifiedOpportunities,
-  getTopPosters: getTopPosters,
-  getCompletionStats: getCompletionStats,
-  // Subscriber exports
-  addSubscriber: addSubscriber,
-  getSubscribers: getSubscribers,
-  getSubscriberCount: getSubscriberCount
-};
-
 // Subscriber functions
 function addSubscriber(email, skills) {
   try {
@@ -345,3 +323,21 @@ function getSubscribers() {
 function getSubscriberCount() {
   return db.prepare('SELECT COUNT(*) as count FROM subscribers').get().count;
 }
+
+module.exports = { 
+  db: db, 
+  insertOpportunity: insertOpportunity, 
+  getRecentOpportunities: getRecentOpportunities, 
+  getStats: getStats, 
+  clearAll: clearAll,
+  addFeaturedListing: addFeaturedListing,
+  getActiveFeaturedListings: getActiveFeaturedListings,
+  getFeaturedStats: getFeaturedStats,
+  // New completion tracking exports
+  updateCompletionStatus: updateCompletionStatus,
+  updatePosterStats: updatePosterStats,
+  getPosterReputation: getPosterReputation,
+  getVerifiedOpportunities: getVerifiedOpportunities,
+  getTopPosters: getTopPosters,
+  getCompletionStats: getCompletionStats
+};
