@@ -249,6 +249,53 @@ app.get('/stats', function(req, res) {
   });
 });
 
+// Validate a single URL (returns 200, 404, etc.)
+app.get('/validate', function(req, res) {
+  var url = req.query.url;
+  if (!url) return res.json({ success: false, error: 'URL required' });
+  
+  var timeout = parseInt(req.query.timeout) || 5000;
+  
+  var parsedUrl;
+  try { parsedUrl = new URL(url); } 
+  catch (e) { return res.json({ success: false, error: 'Invalid URL' }); }
+  
+  var reqOptions = {
+    hostname: parsedUrl.hostname,
+    path: parsedUrl.pathname + parsedUrl.search,
+    method: 'HEAD',
+    timeout: timeout
+  };
+  
+  var http = parsedUrl.protocol === 'https:' ? require('https') : require('http');
+  
+  var req = http.request(reqOptions, function(r) {
+    res.json({ success: true, url: url, status: r.statusCode, valid: r.statusCode < 400 });
+  });
+  
+  req.on('error', function(e) {
+    res.json({ success: false, url: url, error: e.message, valid: false });
+  });
+  
+  req.on('timeout', function() {
+    req.destroy();
+    res.json({ success: false, url: url, error: 'Timeout', valid: false });
+  });
+  
+  req.end();
+});
+
+// Trigger scrape manually (for admin)
+app.post('/scrape', async function(req, res) {
+  // In production, add authentication
+  try {
+    var results = await runAllScrapers();
+    res.json({ success: true, results: results });
+  } catch (e) {
+    res.json({ success: false, error: e.message });
+  }
+});
+
 // Get available skills (extracted from all jobs)
 app.get('/skills', function(req, res) {
   var opportunities = getRecentOpportunities(500, null, null);
