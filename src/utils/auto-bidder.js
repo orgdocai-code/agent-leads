@@ -1,21 +1,8 @@
 // Auto-Bidder: Finds high-paying jobs and generates proposals
-// Phase 1: Poll → Analyze → Store proposals
+// Phase 2: AI-Powered proposal generation
 
 const axios = require('axios');
-
-// Our capabilities (what AgentLeads can do)
-const OUR_CAPABILITIES = [
-  'web scraping',
-  'data aggregation', 
-  'job matching',
-  'API development',
-  'frontend development',
-  'backend development',
-  'AI integration',
-  'automation',
-  'scripting',
-  'database design'
-];
+const { generator } = require('./proposal-ai');
 
 // Minimum payout to consider (in USDC)
 const MIN_PAYOUT = 50;
@@ -114,16 +101,17 @@ async function pollAllSources() {
         if (exists) continue;
         
         // Check if we can do it
-        const canDo = await checkCapabilityMatch(parsed);
+        const canDo = checkCapabilityMatch(parsed);
         
-        if (canDo) {
+        if (canDo && canDo.canDo) {
           const proposal = {
             id: Date.now(),
             jobId: parsed.id,
             source: key,
             job: parsed,
             canDo: true,
-            matchReason: canDo,
+            matchScore: canDo.score,
+            matchReason: canDo.capabilities,
             generatedAt: new Date().toISOString(),
             proposal: null,
             status: 'pending'
@@ -131,7 +119,7 @@ async function pollAllSources() {
           
           proposals.push(proposal);
           newJobs.push(proposal);
-          console.log(`[AutoBidder] Found: ${parsed.title} - $${parsed.payout}`);
+          console.log(`[AutoBidder] Found: ${parsed.title} - $${parsed.payout} (score: ${canDo.score})`);
         }
       }
     } catch (e) {
@@ -143,25 +131,12 @@ async function pollAllSources() {
   return newJobs;
 }
 
-// Check if we can do this job
-async function checkCapabilityMatch(job) {
-  const jobText = (job.title + ' ' + job.description).toLowerCase();
-  
-  for (const capability of OUR_CAPABILITIES) {
-    if (jobText.includes(capability)) {
-      return `Matches: ${capability}`;
-    }
+// Check if we can do this job using AI analysis
+function checkCapabilityMatch(job) {
+  const analysis = generator.analyzeJob(job);
+  if (analysis.canBid) {
+    return { canDo: true, score: analysis.score, capabilities: analysis.capabilities.map(c => c.name).join(', ') };
   }
-  
-  // Check tags
-  if (job.tags) {
-    for (const tag of job.tags) {
-      if (OUR_CAPABILITIES.some(c => tag.toLowerCase().includes(c))) {
-        return `Matches tag: ${tag}`;
-      }
-    }
-  }
-  
   return null;
 }
 
@@ -172,33 +147,17 @@ async function generateProposal(jobId) {
     throw new Error('Proposal not found');
   }
   
-  // Generate proposal text
-  const proposalText = `AgentLeads Solution for: ${proposal.job.title}
-
-## Overview
-We can build an automated solution for this bounty using our existing AgentLeads infrastructure.
-
-## Approach
-1. Deploy AI agent to handle the task
-2. Integrate with required APIs
-3. Deliver automated solution
-
-## Timeline
-- Discovery: 1 day
-- Development: 2-3 days  
-- Testing: 1 day
-- Total: 4-5 days
-
-## Why AgentLeads?
-- Already have the infrastructure
-- Proven track record
-- Fast delivery
-
-Contact: https://agent-leads-ui.vercel.app`;
-
-  proposal.proposal = proposalText;
+  // Use AI generator
+  const analysis = generator.analyzeJob(proposal.job);
+  const aiProposal = await generator.generateProposal(proposal.job, analysis);
+  
+  // Update proposal
+  proposal.proposal = generator.formatProposal(aiProposal);
+  proposal.analysis = analysis;
   proposal.status = 'generated';
   proposal.generatedAt = new Date().toISOString();
+  
+  console.log(`[AutoBidder] Generated proposal for job ${jobId} (score: ${analysis.score})`);
   
   return proposal;
 }
