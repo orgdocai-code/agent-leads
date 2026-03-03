@@ -4,8 +4,8 @@
 const axios = require('axios');
 const { generator } = require('./proposal-ai');
 
-// Minimum payout (USDC)
-const MIN_PAYOUT = 10;
+// Minimum payout (USDC) - lower threshold to catch more jobs
+const MIN_PAYOUT = 0.001;
 
 // In-memory store
 let proposals = [];
