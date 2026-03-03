@@ -1,7 +1,7 @@
 // x402 Payment Router for AgentLeads
 // This module handles receiving and forwarding payments
+// Note: Using manual x402 implementation to avoid ESM issues
 
-const x402 = require('x402');
 const axios = require('axios');
 
 // Our wallet address
@@ -10,10 +10,8 @@ const OUR_WALLET = process.env.WALLET_ADDRESS || '0x3eA43a05C0E3A4449785950E4d1e
 // Fee percentage (we keep this much)
 const FEE_PERCENT = 2; // 2%
 
-// Initialize x402 middleware
+// Initialize x402 payment routes
 function initX402(app) {
-  app.use(x402.middleware());
-  
   // x402 payment handler
   app.post('/pay', async function(req, res) {
     try {
@@ -27,17 +25,14 @@ function initX402(app) {
       const fee = (amount * FEE_PERCENT) / 100;
       const netAmount = amount - fee;
       
-      // Create payment via facilitator
-      const payment = {
-        to: to,
-        amount: netAmount.toString(),
-        currency: currency || 'USDC',
-        description: description || 'AgentLeads Service'
-      };
-      
       res.json({
         success: true,
-        payment: payment,
+        payment: {
+          to: to,
+          amount: netAmount.toString(),
+          currency: currency || 'USDC',
+          description: description || 'AgentLeads Service'
+        },
         fee: fee,
         amount: amount,
         net: netAmount,
@@ -52,7 +47,6 @@ function initX402(app) {
   app.get('/payment/status/:id', async function(req, res) {
     try {
       const paymentId = req.params.id;
-      // In production, check with facilitator
       res.json({ success: true, status: 'pending', id: paymentId });
     } catch (e) {
       res.status(500).json({ error: e.message });
@@ -66,6 +60,20 @@ function initX402(app) {
       feePercent: FEE_PERCENT,
       supportedCurrencies: ['USDC'],
       network: 'base'
+    });
+  });
+  
+  // x402 manifest endpoint (for protocol compatibility)
+  app.get('/.well-known/x402', function(req, res) {
+    res.json({
+      protocol: 'x402',
+      version: '1.0',
+      facilitator: 'https://facilitator.coinbase.com',
+      payment: {
+        scheme: 'evm-chains',
+        network: 'eip155:8453', // Base
+        currency: 'USDC'
+      }
     });
   });
   
