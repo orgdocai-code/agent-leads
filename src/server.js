@@ -310,7 +310,7 @@ function checkPayment(req, res, next) {
 // Get opportunities (featured listings always appear first)
 // Uses API key check which falls back to payment check
 app.get('/opportunities', checkApiKey, function(req, res) {
-  var limit = Math.min(parseInt(req.query.limit) || 50, 100);
+  var limit = Math.min(parseInt(req.query.limit) || 50, 1000);
   var source = req.query.source || null;
   var category = req.query.category || null;
   var skills = req.query.skills ? req.query.skills.split(',') : null;
@@ -402,7 +402,7 @@ app.get('/opportunities', checkApiKey, function(req, res) {
 // Search opportunities
 app.get('/opportunities/search', checkApiKey, function(req, res) {
   var query = req.query.q || '';
-  var limit = Math.min(parseInt(req.query.limit) || 50, 100);
+  var limit = Math.min(parseInt(req.query.limit) || 50, 1000);
   var minPayout = parseFloat(req.query.minPayout) || 0;
   var skills = req.query.skills ? req.query.skills.split(',') : null;
   
