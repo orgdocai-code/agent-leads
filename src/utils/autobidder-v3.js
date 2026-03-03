@@ -1,0 +1,271 @@
+// Auto-Bidder v3: Multi-Source Polling
+// Polls multiple bounty sources directly for better coverage
+
+const axios = require('axios');
+const { generator } = require('./proposal-ai');
+
+const MIN_PAYOUT = 0.001;
+let proposals = [];
+let lastPollTime = null;
+let stats = { polls: 0, matches: 0, errors: 0, bySource: {} };
+
+const CAPABILITY_KEYWORDS = {
+  'api': ['api', 'rest', 'graphql', 'endpoint', 'backend'],
+  'frontend': ['frontend', 'react', 'vue', 'nextjs', 'ui', 'interface'],
+  'discord': ['discord', 'bot'],
+  'telegram': ['telegram', 'bot'],
+  'automation': ['automation', 'automate', 'workflow', 'script'],
+  'ai': ['ai', 'llm', 'gpt', 'openai', 'anthropic', 'ml', 'machine learning'],
+  'scraping': ['scrap', 'crawl', 'extract', 'parse'],
+  'smart-contract': ['solidity', 'smart contract', 'evm', 'token'],
+  'database': ['database', 'sql', 'postgres', 'mysql', 'sqlite'],
+  'security': ['security', 'audit', 'penetration'],
+  'mobile': ['ios', 'android', 'react native', 'flutter'],
+  'devops': ['docker', 'kubernetes', 'aws', 'cloud', 'deploy']
+};
+
+// Direct API sources - these bypass our scraper
+const DIRECT_SOURCES = {
+  // Our own database
+  'agentleads': {
+    name: 'AgentLeads DB',
+    url: 'https://agent-leads-production.up.railway.app/opportunities?limit=500',
+    headers: { 'x-api-key': 'demo' },
+    parser: (job) => ({
+      id: `al-${job.id}`,
+      source: 'agentleads',
+      sourceName: 'AgentLeads',
+      title: job.title,
+      description: job.description || '',
+      payout: parseFloat(job.payout) || 0,
+      currency: job.payoutCurrency || 'USDC',
+      url: job.url,
+      status: job.status,
+      skills: job.skills || []
+    })
+  },
+  
+  // Owockibot direct
+  'owockibot': {
+    name: 'Owockibot',
+    url: 'https://bounty.owockibot.xyz/bounties',
+    parser: (bounty) => ({
+      id: `ow-${bounty.id}`,
+      source: 'owockibot',
+      sourceName: 'Owockibot',
+      title: bounty.title,
+      description: bounty.description || '',
+      payout: (parseFloat(bounty.reward) || 0) / 1000000,
+      currency: 'USDC',
+      url: `https://bounty.owockibot.xyz/bounty/${bounty.id}`,
+      status: bounty.status === 'open' ? 'active' : 'closed',
+      skills: bounty.tags || []
+    })
+  }
+};
+
+class AutoBidderV3 {
+  constructor() {
+    this.running = false;
+    this.notificationCallback = null;
+  }
+  
+  init(app) {
+    // REST endpoints
+    app.get('/autobid/status', (req, res) => {
+      res.json({
+        running: this.running,
+        stats,
+        lastPoll: lastPollTime,
+        proposalsCount: proposals.length,
+        minPayout: MIN_PAYOUT,
+        sources: Object.keys(DIRECT_SOURCES)
+      });
+    });
+    
+    app.get('/autobid/proposals', (req, res) => {
+      const limit = parseInt(req.query.limit) || 20;
+      const status = req.query.status;
+      const source = req.query.source;
+      
+      let filtered = proposals;
+      if (status) filtered = filtered.filter(p => p.status === status);
+      if (source) filtered = filtered.filter(p => p.source === source);
+      
+      res.json({ 
+        proposals: filtered.slice(-limit).reverse(),
+        total: filtered.length 
+      });
+    });
+    
+    app.get('/autobid/proposal/:id', (req, res) => {
+      const id = req.params.id;
+      const proposal = proposals.find(p => p.id == id);
+      if (!proposal) return res.status(404).json({ error: 'Not found' });
+      res.json({ proposal });
+    });
+    
+    app.post('/autobid/poll', async (req, res) => {
+      try {
+        const results = await this.pollAll();
+        res.json({ success: true, found: results.length, results });
+      } catch (e) {
+        stats.errors++;
+        res.status(500).json({ error: e.message });
+      }
+    });
+    
+    app.post('/autobid/generate/:id', async (req, res) => {
+      try {
+        const proposal = await this.generateProposal(req.params.id);
+        res.json({ success: true, proposal });
+      } catch (e) {
+        res.status(500).json({ error: e.message });
+      }
+    });
+    
+    app.post('/autobid/generate-all', async (req, res) => {
+      const pending = proposals.filter(p => !p.proposalText);
+      let generated = 0;
+      for (const p of pending) {
+        try {
+          await this.generateProposal(p.id);
+          generated++;
+        } catch (e) { console.error(e); }
+      }
+      res.json({ success: true, generated });
+    });
+    
+    app.post('/autobid/start', (req, res) => { this.start(); res.json({ success: true }); });
+    app.post('/autobid/stop', (req, res) => { this.stop(); res.json({ success: true }); });
+    app.delete('/autobid/proposal/:id', (req, res) => {
+      const idx = proposals.findIndex(p => p.id == req.params.id);
+      if (idx >= 0) { proposals.splice(idx, 1); res.json({ success: true }); }
+      else res.status(404).json({ error: 'Not found' });
+    });
+    
+    // Start auto-polling
+    this.start();
+    console.log('[AutoBidderV3] Initialized');
+  }
+  
+  start() {
+    if (this.running) return;
+    this.running = true;
+    this.pollAll().catch(console.error);
+    this.interval = setInterval(() => this.pollAll().catch(console.error), 60000);
+    console.log('[AutoBidderV3] Started polling');
+  }
+  
+  stop() {
+    this.running = false;
+    if (this.interval) { clearInterval(this.interval); this.interval = null; }
+  }
+  
+  onMatch(callback) {
+    this.notificationCallback = callback;
+  }
+  
+  async pollAll() {
+    console.log('[AutoBidderV3] Polling all sources...');
+    stats.polls++;
+    const newProposals = [];
+    
+    for (const [key, source] of Object.entries(DIRECT_SOURCES)) {
+      try {
+        if (!stats.bySource[key]) stats.bySource[key] = { polls: 0, matches: 0 };
+        stats.bySource[key].polls++;
+        
+        const response = await axios.get(source.url, { 
+          headers: source.headers, 
+          timeout: 15000 
+        });
+        
+        const items = Array.isArray(response.data) ? response.data : (response.data.data || []);
+        console.log(`[AutoBidderV3] ${source.name}: ${items.length} jobs`);
+        
+        for (const item of items) {
+          const job = source.parser(item);
+          
+          if (job.status !== 'active') continue;
+          if (job.payout < MIN_PAYOUT) continue;
+          
+          const exists = proposals.find(p => p.jobId === job.id && p.source === job.source);
+          if (exists) continue;
+          
+          const analysis = this.analyzeJob(job);
+          
+          if (analysis.canBid) {
+            const proposal = {
+              id: Date.now() + Math.floor(Math.random() * 1000),
+              jobId: job.id,
+              source: job.source,
+              sourceName: job.sourceName,
+              job,
+              analysis,
+              status: 'found',
+              foundAt: new Date().toISOString(),
+              proposalText: null,
+              generatedAt: null
+            };
+            
+            proposals.push(proposal);
+            newProposals.push(proposal);
+            stats.matches++;
+            stats.bySource[key].matches++;
+            
+            console.log(`[AutoBidderV3] ✓ MATCH: ${job.title.substring(0,40)} - $${job.payout} [${job.source}]`);
+            
+            // Notify
+            if (this.notificationCallback) {
+              this.notificationCallback(proposal);
+            }
+          }
+        }
+      } catch (e) {
+        console.error(`[AutoBidderV3] Error polling ${source.name}:`, e.message);
+        stats.errors++;
+      }
+    }
+    
+    lastPollTime = new Date();
+    return newProposals;
+  }
+  
+  analyzeJob(job) {
+    const text = `${job.title} ${job.description} ${(job.skills || []).join(' ')}`.toLowerCase();
+    let score = 0;
+    const matchedCapabilities = [];
+    
+    for (const [cap, keywords] of Object.entries(CAPABILITY_KEYWORDS)) {
+      for (const kw of keywords) {
+        if (text.includes(kw)) {
+          score += 2;
+          if (!matchedCapabilities.includes(cap)) matchedCapabilities.push(cap);
+          break;
+        }
+      }
+    }
+    
+    if (job.payout > 100) score += 3;
+    if (job.payout > 500) score += 5;
+    
+    return { canBid: score >= 3, score, capabilities: matchedCapabilities };
+  }
+  
+  async generateProposal(id) {
+    const proposal = proposals.find(p => p.id == id);
+    if (!proposal) throw new Error('Proposal not found');
+    if (proposal.proposalText) return proposal;
+    
+    const aiProposal = await generator.generateProposal(proposal.job, proposal.analysis);
+    proposal.proposalText = generator.formatProposal(aiProposal);
+    proposal.status = 'generated';
+    proposal.generatedAt = new Date().toISOString();
+    
+    return proposal;
+  }
+}
+
+const autobidder = new AutoBidderV3();
+module.exports = { autobidder: autobidder, AutoBidderV3 };

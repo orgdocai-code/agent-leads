@@ -6,7 +6,7 @@ const axios = require('axios');
 const { getRecentOpportunities, getStats, db, addFeaturedListing, getActiveFeaturedListings, getFeaturedStats, addSubscriber, getSubscribers, getSubscriberCount } = require('./utils/database');
 const { runAllScrapers } = require('./scraper-runner');
 const { initX402 } = require('./utils/payment-router');
-const { autobidder } = require('./utils/autobidder-v2');
+const { autobidder } = require('./utils/autobidder-v3');
 
 const app = express();
 app.use(cors());
@@ -20,7 +20,7 @@ const FEATURED_PRICE = process.env.FEATURED_PRICE || '0.50';
 // Initialize x402 payment router
 initX402(app);
 
-// Initialize auto-bidder v2
+// Initialize auto-bidder v3
 autobidder.init(app);
 
 // ========================================
