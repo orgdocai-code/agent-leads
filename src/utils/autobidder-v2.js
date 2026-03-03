@@ -33,9 +33,7 @@ class AutoBidder {
     this.running = false;
   }
   
-  // Initialize with Express app
   init(app) {
-    // Endpoints
     app.get('/autobid/status', (req, res) => {
       res.json({
         running: this.running,
@@ -49,20 +47,14 @@ class AutoBidder {
     app.get('/autobid/proposals', (req, res) => {
       const limit = parseInt(req.query.limit) || 20;
       const status = req.query.status;
-      
       let filtered = proposals;
       if (status) filtered = proposals.filter(p => p.status === status);
-      
-      res.json({ 
-        proposals: filtered.slice(-limit),
-        total: filtered.length
-      });
+      res.json({ proposals: filtered.slice(-limit), total: filtered.length });
     });
     
     app.get('/autobid/proposal/:id', (req, res) => {
       const id = parseInt(req.params.id);
       const proposal = proposals.find(p => p.id === id);
-      
       if (!proposal) return res.status(404).json({ error: 'Not found' });
       res.json({ proposal });
     });
@@ -87,53 +79,33 @@ class AutoBidder {
       }
     });
     
-    app.post('/autobid/start', (req, res) => {
-      this.start();
-      res.json({ success: true, running: true });
-    });
+    app.post('/autobid/start', (req, res) => { this.start(); res.json({ success: true, running: true }); });
+    app.post('/autobid/stop', (req, res) => { this.stop(); res.json({ success: true, running: false }); });
     
-    app.post('/autobid/stop', (req, res) => {
-      this.stop();
-      res.json({ success: true, running: false });
-    });
-    
-    // Start auto-polling
     this.start();
-    
     console.log('[AutoBidder] Initialized');
   }
   
   start() {
     if (this.running) return;
     this.running = true;
-    
-    // Initial poll
     this.pollAll().catch(console.error);
-    
-    // Poll every 60 seconds
-    this.interval = setInterval(() => {
-      this.pollAll().catch(console.error);
-    }, 60000);
-    
+    this.interval = setInterval(() => { this.pollAll().catch(console.error); }, 60000);
     console.log('[AutoBidder] Started');
   }
   
   stop() {
     this.running = false;
-    if (this.interval) {
-      clearInterval(this.interval);
-      this.interval = null;
-    }
+    if (this.interval) { clearInterval(this.interval); this.interval = null; }
     console.log('[AutoBidder] Stopped');
   }
   
   async pollAll() {
     console.log('[AutoBidder] Polling...');
-    stats.pollsPro++;
-    const newposals = [];
+    stats.polls++;
+    let newProposals = [];
     
     try {
-      // Fetch from our database via API
       const response = await axios.get(
         `https://agent-leads-production.up.railway.app/opportunities?limit=500`,
         { headers: { 'x-api-key': 'demo' }, timeout: 15000 }
@@ -143,18 +115,14 @@ class AutoBidder {
       console.log(`[AutoBidder] Found ${jobs.length} jobs in database`);
       
       for (const job of jobs) {
-        // Skip inactive
         if (job.status !== 'active') continue;
         
-        // Check payout
         const payout = parseFloat(job.payout) || 0;
         if (payout < MIN_PAYOUT) continue;
         
-        // Skip if already have proposal
         const exists = proposals.find(p => p.jobId === job.id && p.source === job.source);
         if (exists) continue;
         
-        // Analyze capabilities
         const analysis = this.analyzeJob(job);
         
         if (analysis.canBid) {
@@ -185,7 +153,6 @@ class AutoBidder {
           console.log(`[AutoBidder] MATCH: ${job.title.substring(0,40)} - $${payout} (score: ${analysis.score})`);
         }
       }
-      
     } catch (e) {
       console.error('[AutoBidder] Poll error:', e.message);
       stats.errors++;
@@ -197,63 +164,39 @@ class AutoBidder {
   
   analyzeJob(job) {
     const text = `${job.title} ${job.description || ''} ${(job.skills || []).join(' ')}`.toLowerCase();
-    
     let score = 0;
     const matchedCapabilities = [];
-    const matchedKeywords = [];
     
-    // Check each capability category
     for (const [capability, keywords] of Object.entries(CAPABILITY_KEYWORDS)) {
       for (const keyword of keywords) {
         if (text.includes(keyword)) {
           score += 2;
-          if (!matchedCapabilities.includes(capability)) {
-            matchedCapabilities.push(capability);
-            matchedKeywords.push(keyword);
-          }
+          if (!matchedCapabilities.includes(capability)) matchedCapabilities.push(capability);
           break;
         }
       }
     }
     
-    // Bonus for high payout
     const payout = parseFloat(job.payout) || 0;
     if (payout > 100) score += 3;
     if (payout > 500) score += 5;
     
-    return {
-      canBid: score >= 3,
-      score,
-      capabilities: matchedCapabilities,
-      keywords: matchedKeywords
-    };
+    return { canBid: score >= 3, score, capabilities: matchedCapabilities };
   }
   
   async generateProposal(id) {
     const proposal = proposals.find(p => p.id === id);
-    if (!proposal) {
-      throw new Error('Proposal not found');
-    }
+    if (!proposal) throw new Error('Proposal not found');
+    if (proposal.proposalText) return proposal;
     
-    if (proposal.proposalText) {
-      return proposal; // Already generated
-    }
-    
-    // Generate using AI
     const aiProposal = await generator.generateProposal(proposal.job, proposal.analysis);
     proposal.proposalText = generator.formatProposal(aiProposal);
     proposal.status = 'generated';
     proposal.generatedAt = new Date().toISOString();
-    
-    console.log(`[AutoBidder] Generated proposal for ${proposal.job.title}`);
     
     return proposal;
   }
 }
 
 const autobidder = new AutoBidder();
-
-module.exports = {
-  autobidder,
-  AutoBidder
-};
+module.exports = { autobidder, AutoBidder };
