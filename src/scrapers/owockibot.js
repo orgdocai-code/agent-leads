@@ -25,17 +25,24 @@ async function scrapeOwockibot() {
     }
     
     var opportunities = bounties.map(function(b) {
+      // Convert reward from raw format (multiply by 1e-6 for USDC)
+      var rewardRaw = b.reward || b.reward_usdc || '0';
+      var rewardUsdc = parseFloat(rewardRaw) / 1000000;
+      
+      // Determine status: open = active, completed/claimed = inactive
+      var status = (b.status === 'open' || b.status === 'active') ? 'active' : 'completed';
+      
       return {
         source: 'owockibot',
         sourceUrl: 'https://bounty.owockibot.xyz',
         title: b.title || 'Untitled Bounty',
         description: b.description || '',
-        payout: b.reward_usdc || b.reward || b.amount || '0',
+        payout: rewardUsdc.toString(),
         payoutCurrency: 'USDC',
         author: b.creator_address || b.creator || 'unknown',
         postUrl: 'https://bounty.owockibot.xyz/bounty/' + (b.id || b._id || Date.now()),
         category: 'bounty',
-        status: b.status || 'open',
+        status: status,
         deadline: b.deadline || '',
         scrapedAt: new Date().toISOString()
       };
