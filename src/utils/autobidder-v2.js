@@ -127,7 +127,7 @@ class AutoBidder {
         
         if (analysis.canBid) {
           const proposal = {
-            id: Date.now() + Math.random(),
+            id: Date.now(),
             jobId: job.id,
             source: job.source,
             job: {
