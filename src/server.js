@@ -5,6 +5,7 @@ const cron = require('node-cron');
 const axios = require('axios');
 const { getRecentOpportunities, getStats, db, addFeaturedListing, getActiveFeaturedListings, getFeaturedStats, addSubscriber, getSubscribers, getSubscriberCount } = require('./utils/database');
 const { runAllScrapers } = require('./scraper-runner');
+const { initX402 } = require('./utils/payment-router');
 
 const app = express();
 app.use(cors());
@@ -14,6 +15,9 @@ const PORT = process.env.PORT || 3000;
 const WALLET = process.env.WALLET_ADDRESS || '0xYourWalletHere';
 const PRICE = process.env.PRICE_PER_REQUEST || '0.05';
 const FEATURED_PRICE = process.env.FEATURED_PRICE || '0.50';
+
+// Initialize x402 payment router
+initX402(app);
 
 // ========================================
 // API KEY SYSTEM (Free Tier: 10 req/day)
