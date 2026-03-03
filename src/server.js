@@ -336,9 +336,21 @@ app.get('/opportunities', checkApiKey, function(req, res) {
     };
   });
 
+  // Filter featured by skills if provided
+  if (skills && skills.length > 0) {
+    featured = featured.filter(function(opp) {
+      if (!opp.skills || opp.skills.length === 0) return false;
+      return skills.some(function(skill) {
+        return opp.skills.some(function(jobSkill) {
+          return jobSkill.toLowerCase() === skill.toLowerCase().trim();
+        });
+      });
+    });
+  }
+  
   var featuredUrls = featured.map(function(f) { return f.url; });
   
-  var opportunities = getRecentOpportunities(limit * 2, source, category)
+  var opportunities = getRecentOpportunities(500, source, category)
     .filter(function(opp) { return featuredUrls.indexOf(opp.post_url) === -1; })
     .map(function(opp) {
       var extractedSkills = extractSkills(opp.title, opp.description);
