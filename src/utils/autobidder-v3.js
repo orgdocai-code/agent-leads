@@ -191,6 +191,16 @@ class AutoBidderV3 {
       res.json({ proposal });
     });
     
+    // Manual trigger for auto-save (for testing)
+    app.post('/autobid/autosave', async (req, res) => {
+      try {
+        const results = await this.pollAll();
+        res.json({ success: true, matches: results.length, saved: 'Check /autobid/proposals' });
+      } catch (e) {
+        res.status(500).json({ error: e.message });
+      }
+    });
+    
     app.post('/autobid/poll', async (req, res) => {
       // Poll but don't auto-save (just return results)
       // Agents must explicitly save proposals they want
