@@ -325,29 +325,32 @@ class AutoBidderV3 {
             const analysis = this.analyzeJob(job);
             
             if (analysis.canBid) {
-            const proposal = {
-              id: Date.now() + Math.floor(Math.random() * 1000),
-              jobId: job.id,
-              source: job.source,
-              sourceName: job.sourceName,
-              job,
-              analysis,
-              status: 'found',
-              foundAt: new Date().toISOString(),
-              proposalText: null,
-              generatedAt: null
-            };
-            
-            newProposals.push(proposal);
-            stats.matches++;
-            stats.bySource[key].matches++;
-            
-            console.log(`[AutoBidderV3] ✓ MATCH: ${job.title.substring(0,40)} - $${job.payout} [${job.source}]`);
-            
-            // Notify
-            if (this.notificationCallback) {
-              this.notificationCallback(proposal);
+              const proposal = {
+                id: Date.now() + Math.floor(Math.random() * 1000),
+                jobId: job.id,
+                source: job.source,
+                sourceName: job.sourceName,
+                job,
+                analysis,
+                status: 'found',
+                foundAt: new Date().toISOString(),
+                proposalText: null,
+                generatedAt: null
+              };
+              
+              newProposals.push(proposal);
+              stats.matches++;
+              stats.bySource[key].matches++;
+              
+              console.log(`[AutoBidderV3] ✓ MATCH: ${job.title.substring(0,40)} - $${job.payout} [${job.source}]`);
+              
+              // Notify
+              if (this.notificationCallback) {
+                this.notificationCallback(proposal);
+              }
             }
+          } catch (parseErr) {
+            console.error(`[AutoBidderV3] Parse error:`, parseErr.message);
           }
         }
       } catch (e) {
