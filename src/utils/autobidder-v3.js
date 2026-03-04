@@ -221,7 +221,8 @@ class AutoBidderV3 {
           
           // Skip closed/completed jobs
           if (job.status === 'closed' || job.status === 'completed') continue;
-          if (job.payout < MIN_PAYOUT) continue;
+          // Skip if payout is 0 for non-GitHub sources (GitHub bounties vary)
+          if (job.payout < MIN_PAYOUT && job.source !== 'github') continue;
           
           const exists = proposals.find(p => p.jobId === job.id && p.source === job.source);
           if (exists) continue;
