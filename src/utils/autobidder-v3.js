@@ -199,6 +199,9 @@ class AutoBidderV3 {
         const response = await axios.get(source.url, { 
           headers: source.headers, 
           timeout: 15000 
+        }).catch(e => {
+          console.error(`[AutoBidderV3] ${source.name} error:`, e.message);
+          return { data: [] };
         });
         
         // Handle different API response formats
@@ -224,6 +227,7 @@ class AutoBidderV3 {
           if (exists) continue;
           
           const analysis = this.analyzeJob(job);
+          console.log(`[AutoBidderV3] Analyzed: ${job.title?.substring(0,30)} score=${analysis.score} canBid=${analysis.canBid}`);
           
           if (analysis.canBid) {
             const proposal = {
