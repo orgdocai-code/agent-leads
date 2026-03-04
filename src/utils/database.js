@@ -244,10 +244,18 @@ function getAgentProposals(agentId, status = null, limit = 50) {
   
   const proposals = db.prepare(query).all(...params);
   
-  return proposals.map(p => ({
-    ...p,
-    skills: JSON.parse(p.skills || '[]')
-  }));
+  return proposals.map(p => {
+    let skills = [];
+    try {
+      skills = JSON.parse(p.skills || '[]');
+    } catch(e) {
+      // Handle comma-separated string
+      if (typeof p.skills === 'string') {
+        skills = p.skills.split(',').map(s => s.trim()).filter(s => s);
+      }
+    }
+    return { ...p, skills };
+  });
 }
 
 function updateProposalStatus(proposalId, status) {
