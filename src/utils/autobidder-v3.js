@@ -314,20 +314,17 @@ class AutoBidderV3 {
         console.log(`[AutoBidderV3] ${source.name}: ${items.length} jobs`);
         
         for (const item of items) {
-          const job = source.parser(item);
-          
-          // Skip closed/completed jobs
-          if (job.status === 'closed' || job.status === 'completed') continue;
-          // Skip if payout is 0 for non-GitHub sources (GitHub bounties vary)
-          if (job.payout < MIN_PAYOUT && job.source !== 'github') continue;
-          
-          const exists = proposals.find(p => p.jobId === job.id && p.source === job.source);
-          if (exists) continue;
-          
-          const analysis = this.analyzeJob(job);
-          console.log(`[AutoBidderV3] Analyzed: ${job.title?.substring(0,30)} score=${analysis.score} canBid=${analysis.canBid}`);
-          
-          if (analysis.canBid) {
+          try {
+            const job = source.parser(item);
+            
+            // Skip closed/completed jobs
+            if (job.status === 'closed' || job.status === 'completed') continue;
+            // Skip if payout is 0 for non-GitHub sources (GitHub bounties vary)
+            if (job.payout < MIN_PAYOUT && job.source !== 'github') continue;
+            
+            const analysis = this.analyzeJob(job);
+            
+            if (analysis.canBid) {
             const proposal = {
               id: Date.now() + Math.floor(Math.random() * 1000),
               jobId: job.id,
@@ -341,7 +338,6 @@ class AutoBidderV3 {
               generatedAt: null
             };
             
-            proposals.push(proposal);
             newProposals.push(proposal);
             stats.matches++;
             stats.bySource[key].matches++;
