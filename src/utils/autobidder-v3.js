@@ -201,13 +201,23 @@ class AutoBidderV3 {
           timeout: 15000 
         });
         
-        const items = Array.isArray(response.data) ? response.data : (response.data.data || []);
+        // Handle different API response formats
+        let items = [];
+        if (Array.isArray(response.data)) {
+          items = response.data;
+        } else if (response.data.items) {
+          items = response.data.items;
+        } else if (response.data.data) {
+          items = response.data.data;
+        }
+        
         console.log(`[AutoBidderV3] ${source.name}: ${items.length} jobs`);
         
         for (const item of items) {
           const job = source.parser(item);
           
-          if (job.status !== 'active') continue;
+          // Skip closed/completed jobs
+          if (job.status === 'closed' || job.status === 'completed') continue;
           if (job.payout < MIN_PAYOUT) continue;
           
           const exists = proposals.find(p => p.jobId === job.id && p.source === job.source);
