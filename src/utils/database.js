@@ -204,6 +204,15 @@ function updateAgentCapabilities(agentId, capabilities) {
     .run(JSON.stringify(capabilities), new Date().toISOString(), agentId);
 }
 
+function getAllAgents() {
+  const agents = db.prepare('SELECT * FROM agents').all();
+  return agents.map(a => {
+    a.capabilities = JSON.parse(a.capabilities || '[]');
+    delete a.api_key_hash;
+    return a;
+  });
+}
+
 function saveProposal(proposal) {
   const stmt = db.prepare(`
     INSERT INTO proposals 
@@ -228,6 +237,13 @@ function saveProposal(proposal) {
   );
   
   return result.lastInsertRowid;
+}
+
+function proposalExists(agentId, jobId, source) {
+  const existing = db.prepare(
+    'SELECT id FROM proposals WHERE agent_id = ? AND job_id = ? AND source = ?'
+  ).get(agentId, jobId, source);
+  return !!existing;
 }
 
 function getAgentProposals(agentId, status = null, limit = 50) {
@@ -528,5 +544,7 @@ module.exports = {
   getAgentProposals: getAgentProposals,
   updateProposalStatus: updateProposalStatus,
   getAgentStats: getAgentStats,
-  generateApiKey: generateApiKey
+  generateApiKey: generateApiKey,
+  getAllAgents: getAllAgents,
+  proposalExists: proposalExists
 };

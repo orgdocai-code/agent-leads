@@ -3,7 +3,7 @@
 
 const axios = require('axios');
 const { generator } = require('./proposal-ai');
-const { saveProposal, getAgentProposals, getAgentByApiKey, registerAgent, getAgentStats, updateProposalStatus, db } = require('./database');
+const { saveProposal, getAgentProposals, getAgentByApiKey, registerAgent, getAgentStats, updateProposalStatus, db, getAllAgents, proposalExists } = require('./database');
 
 const MIN_PAYOUT = 0.001;
 let lastPollTime = null;
@@ -346,7 +346,74 @@ class AutoBidderV3 {
     }
     
     lastPollTime = new Date();
+    
+    // Auto-save matching jobs to agents
+    const savedCount = await this.autoSaveToAgents(newProposals);
+    console.log(`[AutoBidderV3] Auto-saved ${savedCount} proposals to agents`);
+    
     return newProposals;
+  }
+  
+  // Match jobs to agents and save proposals
+  async autoSaveToAgents(matchingJobs) {
+    let savedCount = 0;
+    
+    // Get all registered agents
+    const agents = getAllAgents();
+    
+    if (agents.length === 0) {
+      console.log('[AutoBidderV3] No agents registered, skipping auto-save');
+      return 0;
+    }
+    
+    console.log(`[AutoBidderV3] Checking ${matchingJobs.length} jobs against ${agents.length} agents`);
+    
+    for (const jobWrapper of matchingJobs) {
+      const job = jobWrapper.job || jobWrapper;
+      
+      for (const agent of agents) {
+        // Skip if agent has no capabilities
+        if (!agent.capabilities || agent.capabilities.length === 0) continue;
+        
+        // Check if job matches agent's capabilities
+        const agentCaps = agent.capabilities.map(c => c.toLowerCase());
+        const jobText = `${job.title} ${job.description || ''}`.toLowerCase();
+        
+        const matches = agentCaps.some(cap => jobText.includes(cap));
+        
+        if (!matches) continue;
+        
+        // Check if already saved
+        if (proposalExists(agent.id, job.id, job.source)) {
+          continue;
+        }
+        
+        // Save proposal to agent
+        try {
+          saveProposal({
+            agent_id: agent.id,
+            job_id: job.id,
+            source: job.source,
+            source_name: job.sourceName || job.source,
+            job_title: job.title,
+            job_description: job.description || '',
+            job_url: job.url || '',
+            payout: job.payout || 0,
+            currency: job.currency || 'USDC',
+            skills: job.skills || [],
+            status: 'found',
+            matched_at: new Date().toISOString()
+          });
+          
+          savedCount++;
+          console.log(`[AutoBidderV3] ✓ Saved "${job.title.substring(0,30)}" to agent "${agent.name}"`);
+        } catch (e) {
+          console.error(`[AutoBidderV3] Error saving to agent ${agent.id}:`, e.message);
+        }
+      }
+    }
+    
+    return savedCount;
   }
   
   analyzeJob(job) {
