@@ -21,7 +21,12 @@ const CAPABILITY_KEYWORDS = {
   'database': ['database', 'sql', 'postgres', 'mysql', 'sqlite'],
   'security': ['security', 'audit', 'penetration'],
   'mobile': ['ios', 'android', 'react native', 'flutter'],
-  'devops': ['docker', 'kubernetes', 'aws', 'cloud', 'deploy']
+  'devops': ['docker', 'kubernetes', 'aws', 'cloud', 'deploy'],
+  'web': ['web', 'website', 'frontend', 'ui', 'ux'],
+  'api': ['api', 'rest', 'graphql', 'endpoint', 'backend'],
+  'javascript': ['javascript', 'js', 'node', 'nodejs'],
+  'python': ['python', 'py'],
+  'integration': ['integrat', 'connect', 'hook']
 };
 
 // Direct API sources - these bypass our scraper
@@ -48,7 +53,7 @@ const DIRECT_SOURCES = {
   // GitHub Issues with bounty labels
   'github': {
     name: 'GitHub Bounties',
-    url: 'https://api.github.com/search/issues?q=label:bounty+is:issue+state:open&per_page=50',
+    url: 'https://api.github.com/search/issues?q=label:bounty+is:issue+state:open+language:javascript&per_page=30',
     headers: { 'User-Agent': 'AgentLeads' },
     parser: (issue) => ({
       id: `gh-${issue.id}`,
