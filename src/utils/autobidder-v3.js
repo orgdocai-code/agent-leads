@@ -377,13 +377,13 @@ class AutoBidderV3 {
     if (!proposal) throw new Error('Proposal not found');
     if (proposal.proposal_text) return proposal;
     
-    // Generate using AI
+    // Generate using AI - skills already parsed by getAgentProposals
     const job = {
       title: proposal.job_title,
       description: proposal.job_description,
       payout: proposal.payout,
       source: proposal.source,
-      skills: JSON.parse(proposal.skills || '[]')
+      skills: proposal.skills || []
     };
     
     const analysis = this.analyzeJob(job);
