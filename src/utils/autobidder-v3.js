@@ -45,6 +45,26 @@ const DIRECT_SOURCES = {
     })
   },
   
+  // GitHub Issues with bounty labels
+  'github': {
+    name: 'GitHub Bounties',
+    url: 'https://api.github.com/search/issues?q=label:bounty+is:issue+state:open&per_page=50',
+    headers: { 'User-Agent': 'AgentLeads' },
+    parser: (issue) => ({
+      id: `gh-${issue.id}`,
+      source: 'github',
+      sourceName: 'GitHub',
+      title: issue.title,
+      description: issue.body?.substring(0, 500) || '',
+      payout: 0, // GitHub bounties vary - parse from title/body
+      currency: 'varies',
+      url: issue.html_url,
+      status: 'open',
+      skills: issue.labels?.map(l => l.name) || [],
+      repo: issue.repository_url?.replace('https://api.github.com/repos/', '') || ''
+    })
+  },
+  
   // Owockibot direct
   'owockibot': {
     name: 'Owockibot',
