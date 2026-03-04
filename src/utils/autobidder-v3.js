@@ -3,9 +3,9 @@
 
 const axios = require('axios');
 const { generator } = require('./proposal-ai');
+const { saveProposal, getAgentProposals, getAgentByApiKey, registerAgent, getAgentStats, updateProposalStatus, db } = require('./database');
 
 const MIN_PAYOUT = 0.001;
-let proposals = [];
 let lastPollTime = null;
 let stats = { polls: 0, matches: 0, errors: 0, bySource: {} };
 
@@ -97,37 +97,100 @@ class AutoBidderV3 {
         running: this.running,
         stats,
         lastPoll: lastPollTime,
-        proposalsCount: proposals.length,
         minPayout: MIN_PAYOUT,
         sources: Object.keys(DIRECT_SOURCES)
       });
     });
     
-    app.get('/autobid/proposals', (req, res) => {
-      const limit = parseInt(req.query.limit) || 20;
-      const status = req.query.status;
-      const source = req.query.source;
+    // Register new agent - returns API key
+    app.post('/autobid/register', (req, res) => {
+      try {
+        const { name, capabilities } = req.body;
+        const agent = registerAgent(name || 'Agent', capabilities || []);
+        
+        res.json({
+          success: true,
+          agent: {
+            id: agent.id,
+            name: agent.name,
+            capabilities: agent.capabilities
+          },
+          api_key: agent.api_key,
+          warning: "⚠️ SAVE THIS API KEY NOW! You cannot regenerate the same key or recover history. Store it safely."
+        });
+      } catch (e) {
+        res.status(500).json({ error: e.message });
+      }
+    });
+    
+    // Get agent info by API key
+    app.get('/autobid/me', (req, res) => {
+      const apiKey = req.headers['x-api-key'] || req.query.api_key;
+      if (!apiKey) return res.status(401).json({ error: 'API key required' });
       
-      let filtered = proposals;
-      if (status) filtered = filtered.filter(p => p.status === status);
-      if (source) filtered = filtered.filter(p => p.source === source);
+      const agent = getAgentByApiKey(apiKey);
+      if (!agent) return res.status(401).json({ error: 'Invalid API key' });
+      
+      const agentStats = getAgentStats(agent.id);
+      res.json({ agent, stats: agentStats });
+    });
+    
+    // Get proposals for agent
+    app.get('/autobid/proposals', (req, res) => {
+      const apiKey = req.headers['x-api-key'] || req.query.api_key;
+      if (!apiKey) return res.status(401).json({ error: 'API key required' });
+      
+      const agent = getAgentByApiKey(apiKey);
+      if (!agent) return res.status(401).json({ error: 'Invalid API key' });
+      
+      const status = req.query.status;
+      const limit = parseInt(req.query.limit) || 50;
+      
+      const proposals = getAgentProposals(agent.id, status, limit);
+      const agentStats = getAgentStats(agent.id);
       
       res.json({ 
-        proposals: filtered.slice(-limit).reverse(),
-        total: filtered.length 
+        proposals,
+        stats: agentStats,
+        total: proposals.length
       });
     });
     
+    // Update proposal status
+    app.patch('/autobid/proposal/:id', (req, res) => {
+      const apiKey = req.headers['x-api-key'] || req.query.api_key;
+      if (!apiKey) return res.status(401).json({ error: 'API key required' });
+      
+      const agent = getAgentByApiKey(apiKey);
+      if (!agent) return res.status(401).json({ error: 'Invalid API key' });
+      
+      const { status } = req.body;
+      if (!status) return res.status(400).json({ error: 'Status required' });
+      
+      updateProposalStatus(req.params.id, status);
+      res.json({ success: true });
+    });
+    
+    // Legacy endpoints (for backward compatibility)
     app.get('/autobid/proposal/:id', (req, res) => {
-      const id = req.params.id;
-      const proposal = proposals.find(p => p.id == id);
+      const apiKey = req.headers['x-api-key'] || req.query.api_key;
+      if (!apiKey) return res.status(401).json({ error: 'API key required' });
+      
+      const agent = getAgentByApiKey(apiKey);
+      if (!agent) return res.status(401).json({ error: 'Invalid API key' });
+      
+      const proposals = getAgentProposals(agent.id, null, 1000);
+      const proposal = proposals.find(p => p.id == req.params.id);
+      
       if (!proposal) return res.status(404).json({ error: 'Not found' });
       res.json({ proposal });
     });
     
     app.post('/autobid/poll', async (req, res) => {
+      // Poll but don't auto-save (just return results)
+      // Agents must explicitly save proposals they want
       try {
-        const results = await this.pollAll();
+        const results = await this.pollAll(false);
         res.json({ success: true, found: results.length, results });
       } catch (e) {
         stats.errors++;
@@ -135,38 +198,57 @@ class AutoBidderV3 {
       }
     });
     
+    // Save a proposal for the agent
+    app.post('/autobid/save', (req, res) => {
+      const apiKey = req.headers['x-api-key'] || req.query.api_key;
+      if (!apiKey) return res.status(401).json({ error: 'API key required' });
+      
+      const agent = getAgentByApiKey(apiKey);
+      if (!agent) return res.status(401).json({ error: 'Invalid API key' });
+      
+      const { job, analysis } = req.body;
+      if (!job) return res.status(400).json({ error: 'Job data required' });
+      
+      const proposalId = saveProposal({
+        agent_id: agent.id,
+        job_id: job.id,
+        source: job.source,
+        source_name: job.sourceName,
+        job_title: job.title,
+        job_description: job.description,
+        job_url: job.url,
+        payout: job.payout,
+        currency: job.currency,
+        skills: job.skills || [],
+        status: 'found',
+        matched_at: new Date().toISOString()
+      });
+      
+      stats.matches++;
+      res.json({ success: true, proposalId });
+    });
+    
     app.post('/autobid/generate/:id', async (req, res) => {
+      const apiKey = req.headers['x-api-key'] || req.query.api_key;
+      if (!apiKey) return res.status(401).json({ error: 'API key required' });
+      
+      const agent = getAgentByApiKey(apiKey);
+      if (!agent) return res.status(401).json({ error: 'Invalid API key' });
+      
       try {
-        const proposal = await this.generateProposal(req.params.id);
+        const proposal = await this.generateProposal(req.params.id, agent.id);
         res.json({ success: true, proposal });
       } catch (e) {
         res.status(500).json({ error: e.message });
       }
     });
     
-    app.post('/autobid/generate-all', async (req, res) => {
-      const pending = proposals.filter(p => !p.proposalText);
-      let generated = 0;
-      for (const p of pending) {
-        try {
-          await this.generateProposal(p.id);
-          generated++;
-        } catch (e) { console.error(e); }
-      }
-      res.json({ success: true, generated });
-    });
-    
     app.post('/autobid/start', (req, res) => { this.start(); res.json({ success: true }); });
     app.post('/autobid/stop', (req, res) => { this.stop(); res.json({ success: true }); });
-    app.delete('/autobid/proposal/:id', (req, res) => {
-      const idx = proposals.findIndex(p => p.id == req.params.id);
-      if (idx >= 0) { proposals.splice(idx, 1); res.json({ success: true }); }
-      else res.status(404).json({ error: 'Not found' });
-    });
     
     // Start auto-polling
     this.start();
-    console.log('[AutoBidderV3] Initialized');
+    console.log('[AutoBidderV3] Initialized with DB storage');
   }
   
   start() {
@@ -288,17 +370,31 @@ class AutoBidderV3 {
     return { canBid: score >= 3, score, capabilities: matchedCapabilities };
   }
   
-  async generateProposal(id) {
+  async generateProposal(id, agentId) {
+    // Get proposal from DB
+    const proposals = getAgentProposals(agentId, null, 1000);
     const proposal = proposals.find(p => p.id == id);
     if (!proposal) throw new Error('Proposal not found');
-    if (proposal.proposalText) return proposal;
+    if (proposal.proposal_text) return proposal;
     
-    const aiProposal = await generator.generateProposal(proposal.job, proposal.analysis);
-    proposal.proposalText = generator.formatProposal(aiProposal);
-    proposal.status = 'generated';
-    proposal.generatedAt = new Date().toISOString();
+    // Generate using AI
+    const job = {
+      title: proposal.job_title,
+      description: proposal.job_description,
+      payout: proposal.payout,
+      source: proposal.source,
+      skills: JSON.parse(proposal.skills || '[]')
+    };
     
-    return proposal;
+    const analysis = this.analyzeJob(job);
+    const aiProposal = await generator.generateProposal(job, analysis);
+    const proposalText = generator.formatProposal(aiProposal);
+    
+    // Update in DB
+    db.prepare('UPDATE proposals SET proposal_text = ?, status = ?, generated_at = ? WHERE id = ?')
+      .run(proposalText, 'generated', new Date().toISOString(), id);
+    
+    return { ...proposal, proposal_text: proposalText, status: 'generated' };
   }
 }
 

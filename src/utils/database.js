@@ -105,6 +105,174 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_subscribers_email ON subscribers(email);
 `);
 
+// ========================================
+// AGENTS & PROPOSALS TABLES
+// ========================================
+
+// Agents table - stores agent identities via API keys
+db.exec(`
+  CREATE TABLE IF NOT EXISTS agents (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    api_key_hash TEXT UNIQUE NOT NULL,
+    name TEXT,
+    capabilities TEXT DEFAULT '[]',
+    webhook_url TEXT,
+    notify_on_match INTEGER DEFAULT 1,
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    last_active TEXT
+  );
+  
+  CREATE INDEX IF NOT EXISTS idx_agents_api_key ON agents(api_key_hash);
+  
+  -- Proposals table - stores job proposals for each agent
+  CREATE TABLE IF NOT EXISTS proposals (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    agent_id INTEGER NOT NULL,
+    job_id TEXT NOT NULL,
+    source TEXT NOT NULL,
+    source_name TEXT,
+    job_title TEXT NOT NULL,
+    job_description TEXT,
+    job_url TEXT,
+    payout REAL,
+    currency TEXT,
+    skills TEXT DEFAULT '[]',
+    proposal_text TEXT,
+    status TEXT DEFAULT 'found',
+    matched_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    generated_at TEXT,
+    submitted_at TEXT,
+    accepted_at TEXT,
+    rejected_at TEXT,
+    FOREIGN KEY (agent_id) REFERENCES agents(id)
+  );
+  
+  CREATE INDEX IF NOT EXISTS idx_proposals_agent ON proposals(agent_id);
+  CREATE INDEX IF NOT EXISTS idx_proposals_status ON proposals(status);
+  CREATE INDEX IF NOT EXISTS idx_proposals_job ON proposals(job_id, source);
+`);
+
+// ========================================
+// AGENT & PROPOSAL FUNCTIONS
+// ========================================
+
+const crypto = require('crypto');
+
+function hashApiKey(apiKey) {
+  return crypto.createHash('sha256').update(apiKey).digest('hex');
+}
+
+function generateApiKey() {
+  return 'al_' + crypto.randomUUID().replace(/-/g, '');
+}
+
+function registerAgent(name, capabilities = []) {
+  const apiKey = generateApiKey();
+  const apiKeyHash = hashApiKey(apiKey);
+  
+  const stmt = db.prepare(`
+    INSERT INTO agents (api_key_hash, name, capabilities)
+    VALUES (?, ?, ?)
+  `);
+  
+  const result = stmt.run(apiKeyHash, name, JSON.stringify(capabilities));
+  
+  return {
+    id: result.lastInsertRowid,
+    api_key: apiKey, // Plain text - shown ONLY once!
+    name,
+    capabilities,
+    created_at: new Date().toISOString()
+  };
+}
+
+function getAgentByApiKey(apiKey) {
+  const apiKeyHash = hashApiKey(apiKey);
+  const agent = db.prepare('SELECT * FROM agents WHERE api_key_hash = ?').get(apiKeyHash);
+  
+  if (agent) {
+    agent.capabilities = JSON.parse(agent.capabilities || '[]');
+    // Don't return the hash
+    delete agent.api_key_hash;
+  }
+  
+  return agent;
+}
+
+function updateAgentCapabilities(agentId, capabilities) {
+  db.prepare('UPDATE agents SET capabilities = ?, last_active = ? WHERE id = ?')
+    .run(JSON.stringify(capabilities), new Date().toISOString(), agentId);
+}
+
+function saveProposal(proposal) {
+  const stmt = db.prepare(`
+    INSERT INTO proposals 
+    (agent_id, job_id, source, source_name, job_title, job_description, job_url, payout, currency, skills, proposal_text, status, matched_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+  
+  const result = stmt.run(
+    proposal.agent_id,
+    proposal.job_id,
+    proposal.source,
+    proposal.source_name || proposal.source,
+    proposal.job_title,
+    proposal.job_description || '',
+    proposal.job_url || '',
+    proposal.payout || 0,
+    proposal.currency || 'USDC',
+    JSON.stringify(proposal.skills || []),
+    proposal.proposal_text || '',
+    proposal.status || 'found',
+    proposal.matched_at || new Date().toISOString()
+  );
+  
+  return result.lastInsertRowid;
+}
+
+function getAgentProposals(agentId, status = null, limit = 50) {
+  let query = 'SELECT * FROM proposals WHERE agent_id = ?';
+  const params = [agentId];
+  
+  if (status) {
+    query += ' AND status = ?';
+    params.push(status);
+  }
+  
+  query += ' ORDER BY matched_at DESC LIMIT ?';
+  params.push(limit);
+  
+  const proposals = db.prepare(query).all(...params);
+  
+  return proposals.map(p => ({
+    ...p,
+    skills: JSON.parse(p.skills || '[]')
+  }));
+}
+
+function updateProposalStatus(proposalId, status) {
+  const now = new Date().toISOString();
+  let updateField = status + '_at';
+  
+  db.prepare(`UPDATE proposals SET status = ?, ${updateField} = ? WHERE id = ?`)
+    .run(status, now, proposalId);
+}
+
+function getAgentStats(agentId) {
+  const stats = db.prepare(`
+    SELECT 
+      COUNT(*) as total,
+      SUM(CASE WHEN status = 'found' THEN 1 ELSE 0 END) as found,
+      SUM(CASE WHEN status = 'generated' THEN 1 ELSE 0 END) as generated,
+      SUM(CASE WHEN status = 'submitted' THEN 1 ELSE 0 END) as submitted,
+      SUM(CASE WHEN status = 'accepted' THEN 1 ELSE 0 END) as accepted,
+      SUM(CASE WHEN status = 'rejected' THEN 1 ELSE 0 END) as rejected
+    FROM proposals WHERE agent_id = ?
+  `).get(agentId);
+  
+  return stats;
+}
+
 // Basic opportunity functions
 function insertOpportunity(opp) {
   const stmt = db.prepare(`
@@ -343,5 +511,14 @@ module.exports = {
   // Subscriber exports
   addSubscriber: addSubscriber,
   getSubscribers: getSubscribers,
-  getSubscriberCount: getSubscriberCount
+  getSubscriberCount: getSubscriberCount,
+  // Agent & Proposal exports
+  registerAgent: registerAgent,
+  getAgentByApiKey: getAgentByApiKey,
+  updateAgentCapabilities: updateAgentCapabilities,
+  saveProposal: saveProposal,
+  getAgentProposals: getAgentProposals,
+  updateProposalStatus: updateProposalStatus,
+  getAgentStats: getAgentStats,
+  generateApiKey: generateApiKey
 };
