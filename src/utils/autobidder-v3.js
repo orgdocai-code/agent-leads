@@ -3,7 +3,7 @@
 
 const axios = require('axios');
 const { generator } = require('./proposal-ai');
-const { saveProposal, getAgentProposals, getAgentByApiKey, registerAgent, getAgentStats, updateProposalStatus, db, getAllAgents, proposalExists } = require('./database');
+const { saveProposal, getAgentProposals, getAgentByApiKey, registerAgent, getAgentStats, updateProposalStatus, db, getAllAgents, proposalExists, updateAgentProfile, getAgentById, getRecentOpportunities } = require('./database');
 
 // Pricing
 const PROPOSAL_PRICE_USDC = 0.01; // 1 cent per proposal
@@ -204,6 +204,194 @@ class AutoBidderV3 {
         res.status(500).json({ error: e.message });
       }
     });
+    
+    // ========================================
+    // SMART MATCHING ENDPOINTS
+    // ========================================
+    
+    // Update agent profile (resume, cover letter template)
+    app.post('/autobid/profile', (req, res) => {
+      const apiKey = req.headers['x-api-key'] || req.query.api_key;
+      if (!apiKey) return res.status(401).json({ error: 'API key required' });
+      
+      const agent = getAgentByApiKey(apiKey);
+      if (!agent) return res.status(401).json({ error: 'Invalid API key' });
+      
+      const { resume_text, cover_letter_template, name, capabilities } = req.body;
+      
+      const updated = updateAgentProfile(agent.id, {
+        resume_text,
+        cover_letter_template,
+        name,
+        capabilities
+      });
+      
+      res.json({ success: true, profile: updated });
+    });
+    
+    // Get agent profile
+    app.get('/autobid/profile', (req, res) => {
+      const apiKey = req.headers['x-api-key'] || req.query.api_key;
+      if (!apiKey) return res.status(401).json({ error: 'API key required' });
+      
+      const agent = getAgentByApiKey(apiKey);
+      if (!agent) return res.status(401).json({ error: 'Invalid API key' });
+      
+      res.json({ 
+        profile: {
+          name: agent.name,
+          capabilities: agent.capabilities,
+          hasResume: !!agent.resume_text,
+          resumeLength: agent.resume_text?.length || 0,
+          hasCoverLetter: !!agent.cover_letter_template
+        }
+      });
+    });
+    
+    // Match jobs to agent profile
+    app.post('/autobid/match', async (req, res) => {
+      const apiKey = req.headers['x-api-key'] || req.query.api_key;
+      if (!apiKey) return res.status(401).json({ error: 'API key required' });
+      
+      const agent = getAgentByApiKey(apiKey);
+      if (!agent) return res.status(401).json({ error: 'Invalid API key' });
+      
+      // Get jobs from database
+      const jobs = getRecentOpportunities(500);
+      
+      // Simple keyword matching
+      const profileText = (agent.resume_text || '').toLowerCase() + ' ' + 
+                         (agent.capabilities || []).join(' ').toLowerCase();
+      
+      const matches = jobs.map(job => {
+        const jobText = ((job.description || '') + ' ' + (job.title || '')).toLowerCase();
+        const jobSkills = ((job.required_skills || '') + ' ' + (job.category || '')).toLowerCase();
+        
+        let score = 0;
+        const matchedSkills = [];
+        
+        // Check each capability against job
+        for (const cap of (agent.capabilities || [])) {
+          const capLower = cap.toLowerCase();
+          if (jobText.includes(capLower) || jobSkills.includes(capLower)) {
+            score += 25;
+            matchedSkills.push(cap);
+          }
+        }
+        
+        // Check resume text for skills
+        const resumeWords = profileText.split(/\s+/);
+        for (const word of resumeWords) {
+          if (word.length > 3 && (jobText.includes(word) || jobSkills.includes(word))) {
+            score += 5;
+            if (!matchedSkills.includes(word)) matchedSkills.push(word);
+          }
+        }
+        
+        // Cap at 100
+        score = Math.min(score, 100);
+        
+        return {
+          id: job.id,
+          title: job.title,
+          source: job.source,
+          payout: job.payout,
+          currency: job.payout_currency,
+          url: job.post_url,
+          description: job.description?.substring(0, 200),
+          matchScore: score,
+          matchedSkills: matchedSkills.slice(0, 5)
+        };
+      });
+      
+      // Sort by score and filter
+      const filtered = matches
+        .filter(m => m.matchScore > 0)
+        .sort((a, b) => b.matchScore - a.matchScore)
+        .slice(0, 50);
+      
+      res.json({ matches: filtered, total: filtered.length });
+    });
+    
+    // Generate cover letter / apply
+    app.post('/autobid/apply', async (req, res) => {
+      const apiKey = req.headers['x-api-key'] || req.query.api_key;
+      if (!apiKey) return res.status(401).json({ error: 'API key required' });
+      
+      const agent = getAgentByApiKey(apiKey);
+      if (!agent) return res.status(401).json({ error: 'Invalid API key' });
+      
+      const { job_id, job_title, job_description, job_url } = req.body;
+      
+      if (!job_title) {
+        return res.status(400).json({ error: 'job_title required' });
+      }
+      
+      // Build prompt for cover letter
+      const capabilities = (agent.capabilities || []).join(', ');
+      const resume = agent.resume_text || '';
+      const template = agent.cover_letter_template || '';
+      
+      const prompt = `You are an AI agent freelancer. Write a compelling pitch/cover letter to apply for this job.
+
+Job Title: ${job_title}
+Job Description: ${job_description?.substring(0, 1000) || 'N/A'}
+Job URL: ${job_url || 'N/A'}
+
+Your Capabilities: ${capabilities}
+Your Resume/Background: ${resume.substring(0, 1000)}
+${template ? `Use this template: ${template}` : ''}
+
+Write a professional, concise pitch (150-300 words) that highlights why you're perfect for this job. Focus on relevant skills and experience.`;
+
+      try {
+        // Use OpenAI for generation (or fallback to simple template)
+        let coverLetter = '';
+        
+        if (process.env.OPENAI_API_KEY) {
+          const openai = require('openai');
+          const client = new openai({ apiKey: process.env.OPENAI_API_KEY });
+          
+          const completion = await client.chat.completions.create({
+            model: 'gpt-4o-mini',
+            messages: [{ role: 'user', content: prompt }],
+            max_tokens: 500
+          });
+          
+          coverLetter = completion.choices[0]?.message?.content || '';
+        } else {
+          // Fallback to template
+          coverLetter = template 
+            ? template.replace('{job_title}', job_title).replace('{capabilities}', capabilities)
+            : `Hi,
+
+I'm excited to apply for the ${job_title} position.
+
+With my experience in ${capabilities}, I believe I can deliver excellent results for this project.
+
+${resume.substring(0, 200)}
+
+Let's discuss how I can help you achieve your goals.
+
+Best regards`;
+        }
+        
+        res.json({ 
+          success: true, 
+          coverLetter,
+          job_id,
+          job_title,
+          estimatedTokens: coverLetter.length / 4
+        });
+        
+      } catch (e) {
+        res.status(500).json({ error: 'Failed to generate: ' + e.message });
+      }
+    });
+    
+    // ========================================
+    // END SMART MATCHING
+    // ========================================
     
     app.post('/autobid/poll', async (req, res) => {
       // Poll but don't auto-save (just return results)

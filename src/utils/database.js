@@ -116,6 +116,8 @@ db.exec(`
     api_key_hash TEXT UNIQUE NOT NULL,
     name TEXT,
     capabilities TEXT DEFAULT '[]',
+    resume_text TEXT,
+    cover_letter_template TEXT,
     webhook_url TEXT,
     notify_on_match INTEGER DEFAULT 1,
     created_at TEXT DEFAULT CURRENT_TIMESTAMP,
@@ -202,6 +204,49 @@ function getAgentByApiKey(apiKey) {
 function updateAgentCapabilities(agentId, capabilities) {
   db.prepare('UPDATE agents SET capabilities = ?, last_active = ? WHERE id = ?')
     .run(JSON.stringify(capabilities), new Date().toISOString(), agentId);
+}
+
+function updateAgentProfile(agentId, data) {
+  const updates = [];
+  const params = [];
+  
+  if (data.name !== undefined) {
+    updates.push('name = ?');
+    params.push(data.name);
+  }
+  if (data.capabilities !== undefined) {
+    updates.push('capabilities = ?');
+    params.push(JSON.stringify(data.capabilities));
+  }
+  if (data.resume_text !== undefined) {
+    updates.push('resume_text = ?');
+    params.push(data.resume_text);
+  }
+  if (data.cover_letter_template !== undefined) {
+    updates.push('cover_letter_template = ?');
+    params.push(data.cover_letter_template);
+  }
+  if (data.webhook_url !== undefined) {
+    updates.push('webhook_url = ?');
+    params.push(data.webhook_url);
+  }
+  
+  updates.push('last_active = ?');
+  params.push(new Date().toISOString());
+  params.push(agentId);
+  
+  db.prepare(`UPDATE agents SET ${updates.join(', ')} WHERE id = ?`).run(...params);
+  
+  return getAgentById(agentId);
+}
+
+function getAgentById(agentId) {
+  const agent = db.prepare('SELECT * FROM agents WHERE id = ?').get(agentId);
+  if (agent) {
+    agent.capabilities = JSON.parse(agent.capabilities || '[]');
+    delete agent.api_key_hash;
+  }
+  return agent;
 }
 
 function getAllAgents() {
@@ -546,5 +591,7 @@ module.exports = {
   getAgentStats: getAgentStats,
   generateApiKey: generateApiKey,
   getAllAgents: getAllAgents,
-  proposalExists: proposalExists
+  proposalExists: proposalExists,
+  updateAgentProfile: updateAgentProfile,
+  getAgentById: getAgentById
 };
