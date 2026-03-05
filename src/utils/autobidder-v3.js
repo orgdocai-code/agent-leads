@@ -453,6 +453,98 @@ Best regards`;
     app.post('/autobid/start', (req, res) => { this.start(); res.json({ success: true }); });
     app.post('/autobid/stop', (req, res) => { this.stop(); res.json({ success: true }); });
     
+    // ========================================
+    // OWOCKIBOT AUTO-MONITOR
+    // ========================================
+    
+    const owockibotAxios = axios.create({ baseURL: 'https://bounty.owockibot.xyz' });
+    let owockibotInterval = null;
+    let lastOpenCount = 0;
+    
+    async function checkOwockibot() {
+      try {
+        const res = await owockibotAxios.get('/bounties');
+        const bounties = Array.isArray(res.data) ? res.data : res.data.data || [];
+        const openBounties = bounties.filter(b => b.status === 'open');
+        
+        console.log(`[Owockibot] Open: ${openBounties.length}, Total: ${bounties.length}`);
+        
+        // New open bounty found!
+        if (openBounties.length > 0 && openBounties.length > lastOpenCount) {
+          console.log('[Owockibot] NEW BOUNTY AVAILABLE!');
+          for (const b of openBounties) {
+            console.log(`  - ${b.title} (${b.rewardFormatted || b.reward})`);
+          }
+        }
+        lastOpenCount = openBounties.length;
+        
+        return { open: openBounties.length, total: bounties.length, bounties };
+      } catch (e) {
+        console.error('[Owockibot] Error:', e.message);
+        return { error: e.message };
+      }
+    }
+    
+    // Start Owockibot monitor
+    app.post('/autobid/owockibot/start', (req, res) => {
+      if (owockibotInterval) {
+        return res.json({ success: true, message: 'Already running' });
+      }
+      
+      checkOwockibot(); // Initial check
+      owockibotInterval = setInterval(checkOwockibot, 10000); // Every 10 seconds
+      res.json({ success: true, message: 'Owockibot monitor started (10s interval)' });
+    });
+    
+    // Stop Owockibot monitor
+    app.post('/autobid/owockibot/stop', (req, res) => {
+      if (owockibotInterval) {
+        clearInterval(owockibotInterval);
+        owockibotInterval = null;
+      }
+      res.json({ success: true, message: 'Owockibot monitor stopped' });
+    });
+    
+    // Get Owockibot status
+    app.get('/autobid/owockibot/status', async (req, res) => {
+      const status = await checkOwockibot();
+      res.json({ 
+        monitoring: !!owockibotInterval,
+        ...status
+      });
+    });
+    
+    // Claim bounty (when we find open ones)
+    app.post('/autobid/owockibot/claim/:id', async (req, res) => {
+      const wallet = req.body.wallet || '0x3eA43a05C0E3A4449785950E4d1e96310aEa3670';
+      try {
+        const claimRes = await owockibotAxios.post(`/bounties/${req.params.id}/claim`, {
+          address: wallet
+        });
+        res.json({ success: true, data: claimRes.data });
+      } catch (e) {
+        res.status(400).json({ error: e.response?.data || e.message });
+      }
+    });
+    
+    // Submit work
+    app.post('/autobid/owockibot/submit/:id', async (req, res) => {
+      const { content, proof } = req.body;
+      try {
+        const subRes = await owockibotAxios.post(`/bounties/${req.params.id}/submit`, {
+          content,
+          proof
+        });
+        res.json({ success: true, data: subRes.data });
+      } catch (e) {
+        res.status(400).json({ error: e.response?.data || e.message });
+      }
+    });
+    
+    // ========================================
+    // END OWOCKIBOT
+    // ========================================
+    
     // Start auto-polling
     this.start();
     console.log('[AutoBidderV3] Initialized with DB storage');
