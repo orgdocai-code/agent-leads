@@ -8,6 +8,94 @@ const { runAllScrapers } = require('./scraper-runner');
 const { initX402 } = require('./utils/payment-router');
 const { autobidder } = require('./utils/autobidder-v3');
 
+// ========================================
+// REAL-TIME FETCH FUNCTION
+// ========================================
+const DIRECT_SOURCES = {
+  'github': {
+    name: 'GitHub Bounties',
+    url: 'https://api.github.com/search/issues?q=label:bounty+is:issue+state:open+language:javascript&per_page=30',
+    headers: { 'User-Agent': 'AgentLeads' },
+    parser: (issue) => ({
+      id: `gh-${issue.id}`,
+      source: 'github',
+      sourceName: 'GitHub',
+      title: issue.title,
+      description: issue.body?.substring(0, 500) || '',
+      payout: 0,
+      currency: 'varies',
+      url: issue.html_url,
+      status: 'open',
+      skills: issue.labels?.map(l => l.name) || []
+    })
+  },
+  'owockibot': {
+    name: 'Owockibot',
+    url: 'https://bounty.owockibot.xyz/bounties',
+    parser: (bounty) => ({
+      id: `ow-${bounty.id}`,
+      source: 'owockibot',
+      sourceName: 'Owockibot',
+      title: bounty.title,
+      description: bounty.description || '',
+      payout: (parseFloat(bounty.reward) || 0) / 1000000,
+      currency: 'USDC',
+      url: `https://bounty.owockibot.xyz/bounty/${bounty.id}`,
+      status: bounty.status === 'open' ? 'active' : 'closed',
+      skills: bounty.tags || []
+    })
+  }
+};
+
+async function fetchAllSourcesRealTime(limit = 100) {
+  const allJobs = [];
+  
+  // Fetch from each source in parallel
+  const fetchPromises = Object.entries(DIRECT_SOURCES).map(async ([key, source]) => {
+    try {
+      const response = await axios.get(source.url, { 
+        headers: source.headers,
+        timeout: 10000 
+      });
+      
+      let items = [];
+      if (key === 'github') {
+        items = response.data.items || [];
+      } else if (key === 'owockibot') {
+        items = response.data.bounties || response.data || [];
+      }
+      
+      const jobs = items.map(item => source.parser(item)).filter(j => j);
+      console.log(`[RealTime] ${source.name}: ${jobs.length} jobs`);
+      return jobs;
+    } catch (e) {
+      console.error(`[RealTime] Error fetching ${source.name}:`, e.message);
+      return [];
+    }
+  });
+  
+  const results = await Promise.all(fetchPromises);
+  results.forEach(jobs => allJobs.push(...jobs));
+  
+  // Also get from our DB as fallback
+  try {
+    const dbJobs = getRecentOpportunities(200, null, null);
+    allJobs.push(...dbJobs.map(j => ({...j, source: j.source || 'agentleads', sourceName: 'AgentLeads'})));
+  } catch(e) {
+    console.error('[RealTime] DB error:', e.message);
+  }
+  
+  // Deduplicate by URL
+  const seen = new Set();
+  const unique = allJobs.filter(job => {
+    if (seen.has(job.url)) return false;
+    seen.add(job.url);
+    return true;
+  });
+  
+  return unique.slice(0, limit);
+}
+
 const app = express();
 app.use(cors());
 app.use(express.json());
@@ -525,14 +613,37 @@ app.get('/opportunities', checkApiKey, function(req, res) {
   });
 });
 
-// Search opportunities
-app.get('/opportunities/search', checkApiKey, function(req, res) {
+// Search opportunities - REAL-TIME FETCHING
+app.get('/opportunities/search', checkApiKey, async function(req, res) {
   var query = req.query.q || '';
   var limit = Math.min(parseInt(req.query.limit) || 50, 1000);
   var minPayout = parseFloat(req.query.minPayout) || 0;
   var skills = req.query.skills ? req.query.skills.split(',') : null;
+  var source = req.query.source || null;
+  var realtime = req.query.realtime === 'true';
   
-  var opportunities = getRecentOpportunities(200, null, null);
+  // Fetch real-time from sources (default) or use cached DB
+  var opportunities;
+  if (realtime || !req.query.realtime) {
+    // Real-time by default for freshness
+    try {
+      opportunities = await fetchAllSourcesRealTime(200);
+      console.log(`[Search] Real-time fetch: ${opportunities.length} jobs`);
+    } catch(e) {
+      console.error('[Search] Real-time fetch failed, falling back to DB:', e.message);
+      opportunities = getRecentOpportunities(200, null, null);
+    }
+  } else {
+    // Use cached DB
+    opportunities = getRecentOpportunities(200, null, null);
+  }
+  
+  // Filter by source if specified
+  if (source) {
+    opportunities = opportunities.filter(function(opp) {
+      return opp.source === source;
+    });
+  }
   
   if (query) {
     var searchTerm = query.toLowerCase();
