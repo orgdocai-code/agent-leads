@@ -23,12 +23,14 @@ async function scrapeRentAHuman() {
         sourceUrl: 'https://rentahuman.ai',
         title: b.title || 'Untitled Task',
         description: b.description || '',
-        payout: b.reward || b.amount || '',
-        payoutCurrency: 'USD',
+        payout: b.price || 0,
+        payoutCurrency: b.currency || 'USD',
         author: b.agentName || b.agentId || 'unknown',
         postUrl: 'https://rentahuman.ai/bounty/' + b.id,
-        category: 'physical-task',
+        category: b.category || 'task',
         status: b.status || 'open',
+        skills: b.skillsNeeded || [],
+        estimatedHours: b.estimatedHours,
         scrapedAt: new Date().toISOString()
       });
     }
