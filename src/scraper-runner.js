@@ -5,6 +5,7 @@ var owockibot = require('./scrapers/owockibot');
 var x402bazaar = require('./scrapers/x402bazaar');
 var clawlancer = require('./scrapers/clawlancer');
 var clawhunt = require('./scrapers/clawhunt');
+var arbeitnow = require('./scrapers/arbeitnow');
 var database = require('./utils/database');
 
 var SCRAPERS = [
@@ -15,6 +16,7 @@ var SCRAPERS = [
   { name: 'ClawHunt', fn: clawhunt.scrapeClawHunt },
   { name: 'Owockibot', fn: owockibot.scrapeOwockibot },
   { name: 'x402 Bazaar', fn: x402bazaar.scrapeX402Bazaar },
+  { name: 'Arbeitnow', fn: arbeitnow.scrapeArbeitnow },
 ];
 
 async function runAllScrapers() {
