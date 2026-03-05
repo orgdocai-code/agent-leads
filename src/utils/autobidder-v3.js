@@ -255,46 +255,8 @@ class AutoBidderV3 {
       if (!agent) return res.status(401).json({ error: 'Invalid API key' });
       
       try {
-        // Get proposal to check if already generated
-        const proposals = getAgentProposals(agent.id, null, 1000);
-        const proposal = proposals.find(p => p.id == req.params.id);
-        
-        if (!proposal) return res.status(404).json({ error: 'Proposal not found' });
-        
-        // Check if already generated
-        if (proposal.proposal_text) {
-          return res.json({ success: true, proposal, alreadyGenerated: true });
-        }
-        
-        // Payment required - return payment details
-        return res.json({ 
-          success: false, 
-          paymentRequired: true,
-          price: PROPOSAL_PRICE_USDC,
-          currency: 'USDC',
-          wallet: OUR_WALLET,
-          proposalId: req.params.id,
-          message: 'Payment required to generate AI proposal'
-        });
-        
-      } catch (e) {
-        res.status(500).json({ error: e.message });
-      }
-    });
-    
-    // Pay + generate in one call
-    app.post('/autobid/pay-generate/:id', async (req, res) => {
-      const apiKey = req.headers['x-api-key'] || req.query.api_key;
-      if (!apiKey) return res.status(401).json({ error: 'API key required' });
-      
-      const agent = getAgentByApiKey(apiKey);
-      if (!agent) return res.status(401).json({ error: 'Invalid API key' });
-      
-      try {
-        // For now, accept any request as "paid" (simplification)
-        // In production, verify x402 payment
         const proposal = await this.generateProposal(req.params.id, agent.id);
-        res.json({ success: true, proposal, paid: true });
+        res.json({ success: true, proposal });
       } catch (e) {
         res.status(500).json({ error: e.message });
       }
