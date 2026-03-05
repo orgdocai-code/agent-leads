@@ -1099,11 +1099,12 @@ app.post('/admin/scrape', function(req, res) {
 // SCHEDULED SCRAPING
 // ========================================
 
-cron.schedule('*/10 * * * *', function() {
-  console.log('\n[CRON] Running scheduled scrape...');
+cron.schedule('*/30 * * * *', function() {
+  console.log('\n[CRON] Running scheduled scrape (non-API sources)...');
   runAllScrapers().catch(function(err) {
     console.error('[CRON] Scrape failed:', err.message);
   });
+});
   // Run completion checker every hour
 cron.schedule('0 * * * *', function() {
   console.log('Running hourly completion check...');
