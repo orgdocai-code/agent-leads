@@ -12,6 +12,77 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
+// ========================================
+// RATE LIMITING
+// ========================================
+const rateLimitMap = new Map();
+const RATE_LIMIT_WINDOW_MS = 60 * 1000; // 1 minute
+const RATE_LIMIT_MAX_REQUESTS = 30; // 30 requests per minute per IP
+
+function rateLimitMiddleware(req, res, next) {
+  const ip = req.ip || req.connection.remoteAddress || 'unknown';
+  const now = Date.now();
+  
+  // Clean old entries
+  for (const [key, data] of rateLimitMap) {
+    if (now - data.resetTime > RATE_LIMIT_WINDOW_MS) {
+      rateLimitMap.delete(key);
+    }
+  }
+  
+  let record = rateLimitMap.get(ip);
+  if (!record || now - record.resetTime > RATE_LIMIT_WINDOW_MS) {
+    record = { count: 0, resetTime: now };
+    rateLimitMap.set(ip, record);
+  }
+  
+  record.count++;
+  
+  if (record.count > RATE_LIMIT_MAX_REQUESTS) {
+    return res.status(429).json({ 
+      error: 'Rate limit exceeded', 
+      retryAfter: Math.ceil((record.resetTime + RATE_LIMIT_WINDOW_MS - now) / 1000)
+    });
+  }
+  
+  next();
+}
+
+app.use(rateLimitMiddleware);
+
+// ========================================
+// INPUT VALIDATION
+// ========================================
+function sanitizeInput(str) {
+  if (typeof str !== 'string') return str;
+  // Remove potential XSS and injection characters
+  return str.replace(/[<>'";&]/g, '').trim().substring(0, 1000);
+}
+
+function validateApiKey(key) {
+  if (!key || typeof key !== 'string') return false;
+  // API keys start with 'al_' and are 30+ chars
+  return /^al_[a-z0-9]{30,}$/i.test(key);
+}
+
+function validateAgentName(name) {
+  if (!name || typeof name !== 'string') return false;
+  // 2-50 chars, alphanumeric + spaces only
+  return /^[a-zA-Z0-9 ]{2,50}$/.test(name);
+}
+
+app.use('/autobid/', (req, res, next) => {
+  // Sanitize request body
+  if (req.body && typeof req.body === 'object') {
+    for (const key in req.body) {
+      if (typeof req.body[key] === 'string') {
+        req.body[key] = sanitizeInput(req.body[key]);
+      }
+    }
+  }
+  next();
+});
+
 const PORT = process.env.PORT || 3000;
 const WALLET = process.env.WALLET_ADDRESS || '0xYourWalletHere';
 const PRICE = process.env.PRICE_PER_REQUEST || '0.05';
