@@ -6,6 +6,8 @@ var x402bazaar = require('./scrapers/x402bazaar');
 var clawlancer = require('./scrapers/clawlancer');
 var clawhunt = require('./scrapers/clawhunt');
 var arbeitnow = require('./scrapers/arbeitnow');
+var githubBounties = require('./scrapers/github-bounties');
+var multiSource = require('./scrapers/multi-source');
 var database = require('./utils/database');
 
 var SCRAPERS = [
@@ -17,6 +19,8 @@ var SCRAPERS = [
   { name: 'Owockibot', fn: owockibot.scrapeOwockibot },
   { name: 'x402 Bazaar', fn: x402bazaar.scrapeX402Bazaar },
   { name: 'Arbeitnow', fn: arbeitnow.scrapeArbeitnow },
+  { name: 'GitHub Bounties', fn: githubBounties.scrapeGitHubBounties },
+  { name: 'Multi-Source', fn: multiSource.searchAllSources },
 ];
 
 async function runAllScrapers() {
