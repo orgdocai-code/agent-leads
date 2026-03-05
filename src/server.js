@@ -24,7 +24,7 @@ const DIRECT_SOURCES = {
       description: issue.body?.substring(0, 500) || '',
       payout: 0,
       currency: 'varies',
-      url: issue.html_url,
+      url: issue.html_url || `https://github.com/${issue.repository_url?.replace('https://api.github.com/repos/', '')}/issues/${issue.number}`,
       status: 'open',
       skills: issue.labels?.map(l => l.name) || []
     })
