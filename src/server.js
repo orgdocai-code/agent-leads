@@ -1113,7 +1113,6 @@ cron.schedule('0 * * * *', function() {
     console.error('Completion check error:', err.message);
   });
 });
-});
 
 // ========================================
 // START SERVER
