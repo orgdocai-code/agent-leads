@@ -18,7 +18,6 @@ var SCRAPERS = [
   { name: 'ClawHunt', fn: clawhunt.scrapeClawHunt },
   { name: 'Owockibot', fn: owockibot.scrapeOwockibot },
   { name: 'x402 Bazaar', fn: x402bazaar.scrapeX402Bazaar },
-  { name: 'Arbeitnow', fn: arbeitnow.scrapeArbeitnow },
   { name: 'GitHub Bounties', fn: githubBounties.scrapeGitHubBounties },
   { name: 'Multi-Source', fn: multiSource.searchAllSources },
 ];
