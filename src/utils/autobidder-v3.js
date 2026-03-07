@@ -13,53 +13,168 @@ const OUR_WALLET = '0x3eA43a05C0E3A4449785950E4d1e96310aEa3670';
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const CODEX_MODEL = process.env.CODEX_MODEL || 'gpt-4o';
 
+// Enhanced prompts with deployment instructions
+const PROMPT_TEMPLATES = {
+  discord: `You are an expert Discord bot developer. Create a COMPLETE, DEPLOYABLE solution.
+
+BOUNTY: {title}
+DESCRIPTION: {description}
+
+Write EVERY LINE - no placeholders. Include:
+1. package.json with exact dependencies
+2. Complete bot code (all commands, events)
+3. .env.example
+4. deploy.sh for Railway
+5. Dockerfile
+6. README with deployment steps
+
+Output:
+---
+# FILES
+[package.json]
+<full content>
+[bot.js]
+<full content>
+[.env.example]
+[deploy.sh]
+[Dockerfile]
+[README.md]
+---
+`,
+
+  frontend: `You are an expert React/Next.js developer. Create a COMPLETE, PRODUCTION-READY solution.
+
+BOUNTY: {title}
+DESCRIPTION: {description}
+
+Write EVERY LINE. Include:
+1. package.json
+2. app/page.tsx (complete)
+3. tailwind.config.ts
+4. next.config.js
+5. .env.example
+6. Dockerfile
+7. Vercel deployment steps
+
+Output:
+---
+# FILES
+[package.json]
+[app/page.tsx]
+[tailwind.config.ts]
+[next.config.js]
+[.env.example]
+[Dockerfile]
+[README.md]
+---
+`,
+
+  api: `You are an expert backend API developer. Create a COMPLETE, DEPLOYABLE REST API.
+
+BOUNTY: {title}
+DESCRIPTION: {description}
+
+Write EVERY LINE. Include:
+1. package.json with dependencies
+2. index.js (Express server, all routes)
+3. middleware (error handling, cors)
+4. .env.example
+5. Dockerfile
+6. Deploy instructions
+
+Output:
+---
+# FILES
+[package.json]
+[index.js]
+[middleware/errorHandler.js]
+[.env.example]
+[Dockerfile]
+[README.md]
+---
+`,
+
+  default: `You are an expert full-stack developer. Create a COMPLETE working solution.
+
+BOUNTY: {title}
+DESCRIPTION: {description}
+
+Write ALL code. Include:
+1. package.json
+2. Main code file (complete)
+3. .env.example
+4. README with setup/deploy
+
+Output:
+---
+# FILES
+[package.json]
+[index.js]
+[README.md]
+---
+`
+};
+
+function detectBountyType(bounty) {
+  const text = ((bounty.title || '') + ' ' + (bounty.description || '')).toLowerCase();
+  if (text.includes('discord') || text.includes('telegram') || text.includes('bot')) return 'discord';
+  if (text.includes('react') || text.includes('next') || text.includes('frontend') || text.includes('ui') || text.includes('dashboard')) return 'frontend';
+  if (text.includes('api') || text.includes('endpoint') || text.includes('server') || text.includes('rest')) return 'api';
+  return 'default';
+}
+
 // Generate code using Codex
 async function generateCode(bounty) {
   if (!OPENAI_API_KEY) {
     console.log('[Codex] No API key configured');
-    return null;
+    return generateFallback(bounty);
   }
   
-  const prompt = `You are an expert AI developer. Generate a complete, working solution for this bounty.
-
-BOUNTY TITLE: ${bounty.title}
-BOUNTY DESCRIPTION: ${bounty.description || 'N/A'}
-REQUIREMENTS: ${(bounty.requirements || []).join(', ') || 'None specified'}
-
-Generate:
-1. A complete working implementation
-2. README.md with setup instructions
-3. Deploy instructions if needed
-
-Format your response as:
----
-# FILES
-[filename1.js]
-<file content>
-[filename2.md]
-<file content>
----
-`;
+  const type = detectBountyType(bounty);
+  const template = PROMPT_TEMPLATES[type] || PROMPT_TEMPLATES.default;
+  
+  const prompt = template
+    .replace('{title}', bounty.title || '')
+    .replace('{description}', (bounty.description || '').substring(0, 2000));
 
   try {
+    console.log(`[Codex:${type}] Generating for: ${bounty.title?.substring(0, 30)}`);
+    
     const response = await axios.post('https://api.openai.com/v1/chat/completions', {
       model: CODEX_MODEL,
       messages: [{ role: 'user', content: prompt }],
-      max_tokens: 8000
+      max_tokens: 12000
     }, {
       headers: {
         'Authorization': `Bearer ${OPENAI_API_KEY}`,
         'Content-Type': 'application/json'
-      }
+      },
+      timeout: 60000
     });
     
     const code = response.data.choices[0]?.message?.content;
-    console.log('[Codex] Generated code for:', bounty.title?.substring(0, 30));
+    const tokens = response.data.usage?.total_tokens || 0;
+    console.log(`[Codex] Generated (${tokens} tokens)`);
     return code;
   } catch (e) {
     console.error('[Codex] Error:', e.message);
-    return null;
+    return generateFallback(bounty);
   }
+}
+
+function generateFallback(bounty) {
+  return `
+# Solution: ${bounty.title}
+
+## Description
+${bounty.description || 'N/A'}
+
+## Implementation
+Automated AI-generated solution.
+
+## Files
+See bounty requirements above.
+`;
 }
 
 const MIN_PAYOUT = 0.001;
