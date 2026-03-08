@@ -1255,4 +1255,4 @@ app.post('/autobid/github/generate', async (req, res) => {
 // END GITHUB AUTO-PR
 // ========================================
 
-module.exports = { autobidder: autobidder, AutoBidderV3 };
+module.exports = { autobidder: autobidder, AutoBidderV3, searchBountyIssues, createSolutionPR, parseSolutionFiles };

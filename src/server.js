@@ -6,7 +6,7 @@ const axios = require('axios');
 const { getRecentOpportunities, getStats, db, addFeaturedListing, getActiveFeaturedListings, getFeaturedStats, addSubscriber, getSubscribers, getSubscriberCount } = require('./utils/database');
 const { runAllScrapers } = require('./scraper-runner');
 const { initX402 } = require('./utils/payment-router');
-const { autobidder } = require('./utils/autobidder-v3');
+const { autobidder, searchBountyIssues, createSolutionPR, parseSolutionFiles } = require('./utils/autobidder-v3');
 
 // ========================================
 // REAL-TIME FETCH FUNCTION
@@ -181,6 +181,106 @@ initX402(app);
 
 // Initialize auto-bidder v3
 autobidder.init(app);
+
+// ========================================
+// GITHUB AUTO-PR SUBMISSION (Phase 2)
+// ========================================
+
+const GITHUB_TOKEN = process.env.GITHUB_TOKEN;
+const githubAxios = axios.create({
+  baseURL: 'https://api.github.com',
+  headers: GITHUB_TOKEN ? { 'Authorization': `token ${GITHUB_TOKEN}`, 'User-Agent': 'AgentLeads' } : {}
+});
+
+let githubInterval = null;
+let lastBountyCount = 0;
+
+// Check for new bounty issues
+async function checkGitHubBounties() {
+  const result = await searchBountyIssues();
+  
+  if (result.error && !result.issues) {
+    console.log('[GitHub]', result.error);
+    return result;
+  }
+  
+  console.log(`[GitHub] Found ${result.issues.length} bounty issues`);
+  
+  // If new issues found that weren't there before
+  if (result.issues.length > lastBountyCount && lastBountyCount > 0) {
+    console.log('[GitHub] NEW BOUNTY ISSUES DETECTED!');
+    const issue = result.issues[0];
+    console.log('[GitHub] Auto-creating PR for:', issue.title);
+    const prResult = await createSolutionPR(issue);
+    return prResult;
+  }
+  
+  lastBountyCount = result.issues.length;
+  return { issues: result.issues, total: result.issues.length };
+}
+
+// GitHub Auto-PR Endpoints
+app.post('/autobid/github/start', (req, res) => {
+  if (!GITHUB_TOKEN) {
+    return res.status(500).json({ error: 'GITHUB_TOKEN not configured' });
+  }
+  if (githubInterval) {
+    return res.json({ success: true, message: 'Already running' });
+  }
+  
+  checkGitHubBounties();
+  githubInterval = setInterval(checkGitHubBounties, 30000);
+  res.json({ success: true, message: 'GitHub monitor started (30s interval)' });
+});
+
+app.post('/autobid/github/stop', (req, res) => {
+  if (githubInterval) {
+    clearInterval(githubInterval);
+    githubInterval = null;
+  }
+  res.json({ success: true, message: 'GitHub monitor stopped' });
+});
+
+app.get('/autobid/github/status', async (req, res) => {
+  const result = await searchBountyIssues();
+  res.json({
+    monitoring: !!githubInterval,
+    configured: !!GITHUB_TOKEN,
+    issues: result.issues?.length || 0,
+    error: result.error
+  });
+});
+
+app.post('/autobid/github/auto/:issueNumber', async (req, res) => {
+  if (!GITHUB_TOKEN) {
+    return res.status(500).json({ error: 'GITHUB_TOKEN not configured' });
+  }
+  
+  const { owner, repo } = req.body;
+  const issueNumber = req.params.issueNumber;
+  
+  try {
+    const issueRes = await githubAxios.get(`/repos/${owner}/${repo}/issues/${issueNumber}`);
+    const issue = issueRes.data;
+    
+    const result = await createSolutionPR(issue);
+    res.json(result);
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
+app.post('/autobid/github/generate', async (req, res) => {
+  const { title, description } = req.body;
+  // Use Codex from code-generator if available, otherwise basic
+  const { generateCode } = require('./utils/code-generator');
+  const solution = await generateCode({ title, description, requirements: [] });
+  res.json({ success: !!solution, solution });
+});
+
+// ========================================
+// END GITHUB AUTO-PR
+// ========================================
 
 // ========================================
 // API KEY SYSTEM (Free Tier: 10 req/day)
