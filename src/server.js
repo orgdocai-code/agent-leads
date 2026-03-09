@@ -195,6 +195,13 @@ const githubAxios = axios.create({
 let githubInterval = null;
 let lastBountyCount = 0;
 
+// Helper to parse GitHub issue URL
+function parseIssueUrl(url) {
+  const match = url.match(/github\.com\/([^\/]+)\/([^\/]+)\/issues\/(\d+)/);
+  if (!match) return null;
+  return { owner: match[1], repo: match[2], issueNumber: parseInt(match[3]) };
+}
+
 // Check for new bounty issues
 async function checkGitHubBounties() {
   const result = await searchBountyIssues();
@@ -277,6 +284,91 @@ app.post('/autobid/github/generate', async (req, res) => {
   const solution = await generateCode({ title, description, requirements: [] });
   res.json({ success: !!solution, solution });
 });
+
+// ========================================
+// GITHUB NEGOTIATOR (Real-time Comment + Payment)
+// ========================================
+
+const { monitorNegotiation, generateOfferComment, generateResponse, KEYWORDS, OUR_WALLET } = require('./utils/github-negotiator');
+
+let negotiatorInterval = null;
+const activeNegotiations = new Map();
+
+// Start negotiator - finds issues and offers
+app.post('/autobid/github/negotiator/start', async (req, res) => {
+  if (!GITHUB_TOKEN) {
+    return res.status(500).json({ error: 'GITHUB_TOKEN not configured' });
+  }
+  if (negotiatorInterval) {
+    return res.json({ success: true, message: 'Negotiator already running' });
+  }
+  
+  // Initial check
+  const result = await searchBountyIssues();
+  if (result.issues && result.issues.length > 0) {
+    for (const issue of result.issues.slice(0, 3)) {
+      const repoInfo = parseIssueUrl(issue.html_url);
+      if (repoInfo) {
+        await monitorNegotiation(issue, repoInfo.owner, repoInfo.repo);
+      }
+    }
+  }
+  
+  negotiatorInterval = setInterval(async () => {
+    const result = await searchBountyIssues();
+    if (result.issues && result.issues.length > 0) {
+      for (const issue of result.issues.slice(0, 3)) {
+        const repoInfo = parseIssueUrl(issue.html_url);
+        if (repoInfo) {
+          const action = await monitorNegotiation(issue, repoInfo.owner, repoInfo.repo);
+          if (action?.action === 'deliver') {
+            console.log('[Negotiator] Delivering solution for:', action.issue.title);
+            // Create PR here
+          }
+        }
+      }
+    }
+  }, 30000); // Check every 30s
+  
+  res.json({ success: true, message: 'GitHub negotiator started (30s interval)' });
+});
+
+app.post('/autobid/github/negotiator/stop', (req, res) => {
+  if (negotiatorInterval) {
+    clearInterval(negotiatorInterval);
+    negotiatorInterval = null;
+  }
+  res.json({ success: true, message: 'Negotiator stopped' });
+});
+
+app.get('/autobid/github/negotiator/status', (req, res) => {
+  res.json({
+    running: !!negotiatorInterval,
+    activeNegotiations: activeNegotiations.size,
+    keywords: KEYWORDS
+  });
+});
+
+// Manual offer on specific issue
+app.post('/autobid/github/negotiator/offer', async (req, res) => {
+  const { owner, repo, issueNumber } = req.body;
+  
+  try {
+    const issueRes = await githubAxios.get(`/repos/${owner}/${repo}/issues/${issueNumber}`);
+    const issue = issueRes.data;
+    
+    const comment = await generateOfferComment(issue);
+    await githubAxios.post(`/repos/${owner}/${repo}/issues/${issueNumber}/comments`, { body: comment });
+    
+    res.json({ success: true, comment: comment.substring(0, 200) + '...' });
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
+// ========================================
+// END GITHUB NEGOTIATOR
+// ========================================
 
 // ========================================
 // END GITHUB AUTO-PR
