@@ -3,51 +3,178 @@ const axios = require('axios');
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const CODEX_MODEL = process.env.CODEX_MODEL || 'gpt-4o';
 
-// Enhanced prompts with deployment instructions
+// ULTRA-ENHANCED prompts for maximum quality - built to WIN bounties
 const PROMPT_TEMPLATES = {
-  discord: `You are an expert Discord/Telegram bot developer. Create a COMPLETE, DEPLOYABLE solution.
+  discord: `You are a SENIOR Discord bot architect with 10+ years experience. Create a SOLUTION THAT WINS.
 
 BOUNTY: {title}
 DESCRIPTION: {description}
 REQUIREMENTS: {requirements}
 
-STRICT REQUIREMENTS:
-1. Write EVERY LINE of code - no placeholders
-2. Include package.json with exact dependencies
-3. Add .env.example with all needed variables
-4. Create deploy.sh script for Railway/Vercel deployment
-5. Add Dockerfile for container deployment
-6. Include health check endpoint
-7. Add error handling and logging
-8. Write README with step-by-step deployment
+CRITICAL FOR WINNING:
+1. Code must be PRODUCTION-QUALITY - no placeholders, no TODO comments
+2. Include COMPLETE error handling, logging, and edge cases
+3. Add rate limiting, command cooldown, permission checks
+4. Include proper TypeScript types or JSDoc comments
+5. Write tests if applicable
+6. Include Docker, Railway, and PM2 deployment
+7. Add health check /status endpoint
+8. Include proper env validation
+9. Make it STAND OUT - add features they didn't ask for but would be useful
 
-DEPLOYMENT METHODS TO INCLUDE:
-- Railway.app (easiest)
-- Docker + fly.io
-- Local development
+YOUR CODE WILL BE JUDGED AGAINST OTHER SUBMISSIONS. Make it the BEST.
 
-OUTPUT FORMAT:
+OUTPUT:
 ---
 # FILES
 [package.json]
-<complete with scripts, dependencies, engines>
 [.env.example]
-<all environment variables>
 [index.js]
-<complete bot code with all commands>
 [deploy.sh]
-<deployment script>
 [Dockerfile]
-<dockerfile if applicable>
 [README.md]
-<full deployment guide>
 ---
 `,
 
-  frontend: `You are an expert React/Next.js developer. Create a COMPLETE, PRODUCTION-READY frontend.
+  frontend: `You are a SENIOR React/Next.js architect. Create a SOLUTION THAT WINS.
 
 BOUNTY: {title}
 DESCRIPTION: {description}
+
+CRITICAL FOR WINNING:
+1. Use TypeScript with proper typing - no 'any'
+2. Include proper loading states, error boundaries
+3. Add accessibility (a11y) considerations
+4. Include proper SEO meta tags
+5. Add Tailwind CSS with responsive design
+6. Include Lighthouse optimization (images, fonts)
+7. Add unit tests or at least basic test structure
+8. Deployable to Vercel with zero config
+9. Include proper environment handling
+
+OUTPUT:
+---
+# FILES
+[package.json]
+[tsconfig.json]
+[tailwind.config.ts]
+[next.config.js]
+[app/page.tsx]
+[app/layout.tsx]
+[.env.example]
+[Dockerfile]
+[README.md]
+---
+`,
+
+  api: `You are a SENIOR backend architect. Create a SOLUTION THAT WINS.
+
+BOUNTY: {title}
+DESCRIPTION: {description}
+
+CRITICAL FOR WINNING:
+1. Use Express/Fastify with TypeScript
+2. Include proper middleware: helmet, cors, rate-limit, compression
+3. Add input validation (zod/joi)
+4. Include proper error handling with error codes
+5. Add request logging (morgan/pino)
+6. Include health check /metrics endpoints
+7. Add database migrations or ORM setup
+8. Include Docker + docker-compose
+9. Add basic unit tests
+10. Include PM2 ecosystem for production
+
+OUTPUT:
+---
+# FILES
+[package.json]
+[tsconfig.json]
+[src/index.ts]
+[src/routes/*.ts]
+[src/middleware/*.ts]
+[.env.example]
+[Dockerfile]
+[docker-compose.yml]
+[README.md]
+---
+`,
+
+  plugin: `You are a SENIOR AI plugin developer (OpenClaw, ElizaOS, Claude). Create a PLUGIN THAT WINS.
+
+BOUNTY: {title}
+DESCRIPTION: {description}
+
+CRITICAL FOR WINNING:
+1. Follow platform conventions exactly
+2. Include proper manifest/SKILL.md
+3. Add configuration schema
+4. Include proper error handling
+5. Add example usage in README
+6. Make it actually useful, not just demo
+7. Include proper TypeScript types
+
+OUTPUT:
+---
+# FILES
+[SKILL.md]
+[index.js]
+[config.ts]
+[README.md]
+---
+`,
+
+  mobile: `You are a SENIOR React Native developer. Create an APP THAT WINS.
+
+BOUNTY: {title}
+DESCRIPTION: {description}
+
+CRITICAL FOR WINNING:
+1. Use Expo with TypeScript
+2. Include proper navigation (React Navigation)
+3. Add proper loading/error states
+4. Include proper environment handling
+5. Add app icons and splash screen config
+6. Include EAS Build configuration
+7. Make it actually usable
+
+OUTPUT:
+---
+# FILES
+[package.json]
+[app.json]
+[App.tsx]
+[src/screens/*.tsx]
+[src/navigation/*.tsx]
+[.env.example]
+[README.md]
+---
+`,
+
+  default: `You are a SENIOR full-stack developer. Create a SOLUTION THAT WINS.
+
+BOUNTY: {title}
+DESCRIPTION: {description}
+
+CRITICAL FOR WINNING:
+1. Code must be COMPLETE and WORKING
+2. Include proper error handling
+3. Include Docker deployment
+4. Include environment validation
+5. Add health check endpoint
+6. Make it stand out with extra features
+7. Include clear README
+
+OUTPUT:
+---
+# FILES
+[package.json]
+[index.js]
+[.env.example]
+[Dockerfile]
+[README.md]
+---
+`
+};
 REQUIREMENTS: {requirements}
 
 STRICT REQUIREMENTS:

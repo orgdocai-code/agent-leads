@@ -748,6 +748,15 @@ Best regards`;
     app.post('/autobid/owockibot/auto/:id', async (req, res) => {
       const bountyId = req.params.id;
       
+      // Discord notification helper
+      const discordNotify = async (msg) => {
+        const webhook = process.env.DISCORD_WEBHOOK;
+        if (!webhook) return;
+        try {
+          await axios.post(webhook, { content: msg });
+        } catch (e) { /* ignore */ }
+      };
+      
       try {
         // Fetch bounty details
         const bountyRes = await owockibotAxios.get(`/bounties/${bountyId}`);
@@ -771,6 +780,7 @@ Best regards`;
         const wallet = req.body.wallet || OUR_WALLET;
         await owockibotAxios.post(`/bounties/${bountyId}/claim`, { address: wallet });
         console.log('[Auto] Claimed!');
+        await discordNotify(`✅ **BOUNTY CLAIMED:** ${bounty.title} - ${bounty.rewardFormatted || bounty.reward}`);
         
         // Submit solution (simplified - just send the code as proof)
         const proof = solution.substring(0, 1500);
@@ -779,6 +789,7 @@ Best regards`;
           proof: proof
         });
         console.log('[Auto] Submitted!');
+        await discordNotify(`🎉 **SOLUTION SUBMITTED:** ${bounty.title}\n\`\`\`${solution.substring(0, 200)}...\`\`\``);
         
         res.json({ 
           success: true, 
@@ -788,6 +799,7 @@ Best regards`;
         
       } catch (e) {
         console.error('[Auto] Error:', e.message);
+        await discordNotify(`❌ **ERROR:** ${e.message}`);
         res.status(400).json({ error: e.response?.data || e.message });
       }
     });

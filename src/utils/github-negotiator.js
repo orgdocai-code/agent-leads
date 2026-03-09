@@ -12,6 +12,15 @@ const githubAxios = axios.create({
   headers: GITHUB_TOKEN ? { 'Authorization': `token ${GITHUB_TOKEN}`, 'User-Agent': 'AgentLeads' } : {}
 });
 
+// Discord notification helper
+async function discordNotify(msg) {
+  const webhook = process.env.DISCORD_WEBHOOK;
+  if (!webhook) return;
+  try {
+    await axios.post(webhook, { content: msg });
+  } catch (e) { /* ignore */ }
+}
+
 // Track active negotiations
 const negotiations = new Map(); // issueId -> { price, status, paid, comments }
 
@@ -187,6 +196,7 @@ async function monitorNegotiation(issue, owner, repo) {
     };
     negotiations.set(issueId, negotiation);
     console.log(`[GitHub] Posted offer on ${issueId}, keyword: ${negotiation.keyword}`);
+    await discordNotify(`📝 **NEW OFFER:** Posted on ${issueId}\nKeyword: ${negotiation.keyword}`);
     return;
   }
   
@@ -226,6 +236,7 @@ async function monitorNegotiation(issue, owner, repo) {
     // If payment confirmed, deliver!
     if (negotiation.status === 'payment_pending' || detectPayment(customerMessage)) {
       negotiation.status = 'delivering';
+      await discordNotify(`💰 **PAYMENT CONFIRMED!** ${issue.title} - Delivering solution...`);
       return { action: 'deliver', issue, negotiation };
     }
   }
