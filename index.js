@@ -1,4 +1,4 @@
-// Railway deployment - redirect to full server
+// Railway deployment - full server with built-in scraper scheduler
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
@@ -7,7 +7,7 @@ const axios = require('axios');
 const { getRecentOpportunities, getStats, db, addFeaturedListing, getActiveFeaturedListings, getFeaturedStats, addSubscriber, getSubscribers, getSubscriberCount } = require('./src/utils/database');
 const { runAllScrapers } = require('./src/scraper-runner');
 const { initX402 } = require('./src/utils/payment-router');
-const { autobidder, searchBountyIssues, createSolutionPR, parseSolutionFiles } = require('./src/utils/autobidder-v3');
+const { autobidder, searchBountyIssues, createSolutionPR, parseSolutionX402 } = require('./src/utils/autobidder-v3');
 
 const app = express();
 app.use(cors());
@@ -36,6 +36,16 @@ app.get('/stats', (req, res) => {
     res.json(stats);
   } catch (err) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+// Trigger scrape manually (for admin)
+app.post('/scrape', async (req, res) => {
+  try {
+    const results = await runAllScrapers();
+    res.json({ success: true, results: results });
+  } catch (e) {
+    res.json({ success: false, error: e.message });
   }
 });
 
@@ -80,6 +90,33 @@ app.get('/subscribers/count', (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+
+// ========================================
+// BUILT-IN SCRAPER SCHEDULER
+// ========================================
+console.log('[Scheduler] Setting up scraper cron job (every 2 hours)');
+
+// Run scraper every 2 hours
+cron.schedule('0 */2 * * *', async () => {
+  console.log('[Scheduler] Running scheduled scraper...');
+  try {
+    const results = await runAllScrapers();
+    console.log('[Scheduler] Scraping complete:', results);
+  } catch (e) {
+    console.error('[Scheduler] Scraping error:', e.message);
+  }
+});
+
+// Initial scrape on startup (after 10 second delay)
+setTimeout(async () => {
+  console.log('[Startup] Running initial scrape...');
+  try {
+    const results = await runAllScrapers();
+    console.log('[Startup] Initial scrape complete:', results);
+  } catch (e) {
+    console.error('[Startup] Initial scrape error:', e.message);
+  }
+}, 10000);
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
