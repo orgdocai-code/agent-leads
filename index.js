@@ -38,6 +38,55 @@ app.get('/jobs', async (req, res) => {
   }
 });
 
+// Search opportunities (for UI)
+app.get('/opportunities/search', async (req, res) => {
+  try {
+    const limit = parseInt(req.query.limit) || 1000;
+    const skills = req.query.skills ? req.query.skills.split(',') : [];
+    const query = req.query.q || '';
+    
+    let jobs = getRecentOpportunities(limit);
+    
+    // Filter by skills
+    if (skills.length > 0) {
+      jobs = jobs.filter(job => {
+        const jobSkills = (job.required_skills || []).map(s => s.toLowerCase());
+        return skills.some(s => jobSkills.includes(s.toLowerCase()));
+      });
+    }
+    
+    // Filter by query
+    if (query) {
+      const q = query.toLowerCase();
+      jobs = jobs.filter(job => 
+        job.title.toLowerCase().includes(q) || 
+        (job.description && job.description.toLowerCase().includes(q))
+      );
+    }
+    
+    // Format for UI (ensure all fields match expected structure)
+    const formattedJobs = jobs.map(job => ({
+      id: job.id,
+      source: job.source,
+      title: job.title,
+      description: job.description || '',
+      payout: job.payout || '',
+      payoutCurrency: job.payout_currency || 'USD',
+      author: job.author || '',
+      url: job.post_url || job.url || '',
+      category: job.category || '',
+      status: job.status || 'active',
+      scrapedAt: job.scraped_at || job.created_at || new Date().toISOString(),
+      skills: job.required_skills || [],
+      featured: false
+    }));
+    
+    res.json({ data: formattedJobs, count: formattedJobs.length });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Get stats
 app.get('/stats', (req, res) => {
   try {
