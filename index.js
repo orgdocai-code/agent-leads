@@ -13,6 +13,15 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
+// Root route
+app.get('/', (req, res) => {
+  res.json({ 
+    name: 'AgentLeads API', 
+    version: '1.0.0',
+    endpoints: ['/health', '/jobs', '/stats', '/skills', '/scrape']
+  });
+});
+
 // Health check
 app.get('/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
